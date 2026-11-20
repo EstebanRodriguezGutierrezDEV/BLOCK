@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<main id="main-content" class="auth-card">
+  <h1>Servicio no disponible</h1>
+  <p class="notice" role="alert">{{ error }}</p>
+  <a class="secondary-button" href="{{ url_for('index') }}">Volver al inicio</a>
+</main>
+{% endblock %}

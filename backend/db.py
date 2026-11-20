@@ -1,0 +1,150 @@
+"""SQLite para desarrollo y PostgreSQL para producción."""
+
+from contextlib import contextmanager
+import os
+from pathlib import Path
+import sqlite3
+from typing import Iterator
+
+import psycopg
+from psycopg.rows import dict_row
+
+DB_PATH = Path(os.environ.get("TODO_DB_PATH", Path(__file__).with_name("todos.db")))
+
+
+class PostgresConnection:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, query, parameters=()):
+        # Las consultas son constantes internas y usan los marcadores de SQLite.
+        return self.connection.execute(query.replace("?", "%s"), parameters)
+
+
+@contextmanager
+def database(*, write=False) -> Iterator[sqlite3.Connection | PostgresConnection]:
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        # Desactiva PREPARE para conexiones que pasan por un pool de transacciones.
+        with psycopg.connect(url, connect_timeout=5, prepare_threshold=None, row_factory=dict_row) as connection:
+            yield PostgresConnection(connection)
+        return
+    connection = sqlite3.connect(DB_PATH, timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    try:
+        if write:
+            connection.execute("BEGIN IMMEDIATE")
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def assign_legacy_tasks(connection: sqlite3.Connection) -> None:
+    email = os.environ.get("TODO_LEGACY_OWNER_EMAIL", "").strip().lower()
+    if email:
+        connection.execute(
+            """UPDATE tasks SET user_id = (
+                SELECT id FROM users WHERE email = ? AND email_verified = 1
+            ) WHERE user_id IS NULL""",
+            (email,),
+        )
+
+
+def init_db() -> None:
+    if os.environ.get("DATABASE_URL"):
+        init_postgres()
+        return
+
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with database(write=True) as connection:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                email_verified INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)")}
+        if "email_verified" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
+            # En la versión anterior solo se guardaba una contraseña tras verificar el correo.
+            connection.execute("UPDATE users SET email_verified = 1 WHERE password_hash IS NOT NULL")
+            if {"activation_hash", "activation_sent_at"} <= user_columns:
+                connection.execute("UPDATE users SET activation_hash = NULL, activation_sent_at = NULL")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at INTEGER NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            )
+        """)
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)")}
+        for column in ("start_date", "end_date"):
+            if column not in columns:
+                connection.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+        if "user_id" not in columns:
+            connection.execute("ALTER TABLE tasks ADD COLUMN user_id INTEGER REFERENCES users(id)")
+        connection.execute(
+            "UPDATE tasks SET start_date = COALESCE(start_date, substr(created_at, 1, 10)), "
+            "end_date = COALESCE(end_date, start_date, substr(created_at, 1, 10)) "
+            "WHERE start_date IS NULL OR end_date IS NULL"
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS tasks_by_user ON tasks (user_id)")
+        assign_legacy_tasks(connection)
+
+
+def init_postgres() -> None:
+    with database(write=True) as connection:
+        # Serializa la creación de tablas cuando arrancan varias instancias.
+        connection.execute("SELECT pg_advisory_xact_lock(638102597)")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at BIGINT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id),
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                completed BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TEXT NOT NULL DEFAULT to_char(
+                    CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+                ),
+                updated_at TEXT NOT NULL DEFAULT to_char(
+                    CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+                )
+            )
+        """)
+        connection.execute("CREATE INDEX IF NOT EXISTS tasks_by_user ON tasks (user_id)")

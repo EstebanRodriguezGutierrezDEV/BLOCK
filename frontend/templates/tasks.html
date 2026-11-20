@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Mi espacio · Tu block de tareas{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<div class="workspace">
+  <aside class="sidebar" aria-label="Navegación por meses y años">
+    <a href="{{ url_for('index') }}" class="brand sidebar-brand"><img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" /><span>Tu block<br /> de tareas<span class="brand-dot">.</span></span></a>
+    <a class="sidebar-home" href="{{ url_for('index') }}">⌂ <span>Inicio</span></a>
+    <div class="sidebar-section-title">MI ORGANIZACIÓN</div>
+    <div class="year-navigation">
+      <button type="button" id="previous-year" class="icon-button" aria-label="Año anterior">‹</button>
+      <label class="select-wrap"><span class="sr-only">Seleccionar año</span><select id="year-select"></select></label>
+      <button type="button" id="next-year" class="icon-button" aria-label="Año siguiente">›</button>
+    </div>
+    <details class="month-dropdown" open>
+      <summary>Meses del año <span aria-hidden="true">⌄</span></summary>
+      <nav id="month-list" class="month-list" aria-label="Seleccionar mes"></nav>
+    </details>
+    <div class="sidebar-bottom"><span class="sidebar-spark" aria-hidden="true">✦</span><p>Un mes para avanzar.<br /><strong>A tu propio ritmo.</strong></p><span id="year-task-count" class="year-task-count"></span></div>
+  </aside>
+
+  <main id="main-content" class="workspace-main">
+    <header class="workspace-header">
+      <div><p class="eyebrow">TU ESPACIO PERSONAL</p><h1>Un plan para lo que viene<span class="brand-dot">.</span></h1><p>Organiza tus pendientes y deja espacio para lo importante.</p></div>
+      <div class="workspace-account">
+        <p class="account-email">{{ user.email }}</p>
+        <form method="post" action="{{ url_for('logout') }}"><button class="text-button" type="submit">Cerrar sesión</button></form>
+        <button class="primary-button" type="button" id="new-task-button"><span aria-hidden="true">＋</span> Nueva tarea</button>
+      </div>
+    </header>
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <div id="loading-status" class="loading-status" role="status">Cargando tu block…</div>
+    <section class="summary" aria-label="Resumen del mes">
+      <div class="summary-item"><span class="summary-label">Tareas del mes</span><span class="summary-number" id="total-count">0</span></div>
+      <div class="summary-item"><span class="summary-label">Por hacer</span><span class="summary-number" id="pending-count">0</span></div>
+      <div class="summary-item"><span class="summary-label">Completadas</span><span class="summary-number" id="done-count">0</span></div>
+      <div class="progress-area"><span class="progress-label" id="progress-label">0% completado</span><div class="progress-track" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div></div>
+    </section>
+
+    <section class="calendar-panel" aria-labelledby="calendar-title">
+      <div class="calendar-toolbar"><div><p class="eyebrow">TU MES, DE UN VISTAZO</p><h2 id="calendar-title" aria-live="polite"></h2></div><div class="calendar-controls"><button type="button" class="secondary-button" id="today-button">Hoy</button><button type="button" class="icon-button" id="previous-month" aria-label="Mes anterior">‹</button><button type="button" class="icon-button" id="next-month" aria-label="Mes siguiente">›</button></div></div>
+      <div class="calendar-legend" aria-label="Colores de las tareas"><span><i class="legend-dot status-upcoming"></i>Por empezar</span><span><i class="legend-dot status-active"></i>En curso</span><span><i class="legend-dot status-overdue"></i>Vencida</span><span><i class="legend-dot status-completed"></i>Completada</span></div>
+      <p class="calendar-hint">Selecciona un día para ver sus tareas. Los colores cubren desde el inicio hasta el fin.</p>
+      <div class="calendar-scroll"><div class="calendar-inner"><div class="weekdays" aria-hidden="true"><span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div><div id="calendar-grid" class="calendar-grid" aria-label="Días del mes"></div></div></div>
+    </section>
+
+    <section class="tasks-section" aria-labelledby="tasks-title">
+      <div class="tasks-header"><div><p class="eyebrow">PASO A PASO</p><h2 id="tasks-title">Tareas del mes</h2><button type="button" id="clear-day" class="text-button" hidden>Ver todo el mes</button></div><label class="search-wrap"><span class="sr-only">Buscar tareas por título o descripción</span><span aria-hidden="true">⌕</span><input type="search" id="search" placeholder="Buscar en este mes…" autocomplete="off" /></label></div>
+      <div class="filters" role="group" aria-label="Filtrar tareas"><button type="button" class="filter active" data-filter="all" aria-pressed="true">Todas</button><button type="button" class="filter" data-filter="pending" aria-pressed="false">Por hacer</button><button type="button" class="filter" data-filter="completed" aria-pressed="false">Completadas</button></div>
+      <ul id="task-list" class="task-list" aria-live="polite" aria-busy="true"></ul>
+      <div id="empty-state" class="empty-state" hidden><span class="empty-icon" aria-hidden="true">✓</span><h3 id="empty-title">Un nuevo espacio para tus planes</h3><p id="empty-subtitle">Crea una tarea y dale una fecha para empezar.</p><button type="button" class="secondary-button" id="empty-add">Crear una tarea</button></div>
+    </section>
+    <footer class="workspace-footer">No tienes que hacerlo todo hoy. Un paso también es avanzar.</footer>
+  </main>
+</div>
+
+<dialog id="task-dialog" class="task-dialog" aria-labelledby="dialog-title">
+  <form id="task-form">
+    <div class="dialog-top"><div><p class="eyebrow">DALE ESPACIO A TU PLAN</p><h2 id="dialog-title">Nueva tarea</h2></div><button type="button" id="close-dialog" class="close-dialog" aria-label="Cerrar">×</button></div>
+    <label class="field-label" for="task-title-input">¿Qué tienes pendiente?</label><input id="task-title-input" name="title" placeholder="Ej. Preparar la presentación" maxlength="200" required autocomplete="off" />
+    <label class="field-label" for="task-description">Descripción <span>(opcional)</span></label><textarea id="task-description" name="description" placeholder="Los detalles que te ayudarán a empezar…" maxlength="1000" rows="3"></textarea>
+    <div class="date-fields"><div><label class="field-label" for="task-start">Fecha de inicio</label><input id="task-start" name="start_date" type="date" min="0001-01-01" max="9999-12-31" required /></div><div><label class="field-label" for="task-end">Fecha de fin</label><input id="task-end" name="end_date" type="date" min="0001-01-01" max="9999-12-31" required /></div></div>
+    <p class="field-hint">La tarea aparecerá en todos los días de este intervalo, incluidas ambas fechas.</p>
+    <div id="form-notice" class="notice" role="alert" hidden></div>
+    <div class="dialog-actions"><button type="button" class="secondary-button" id="cancel-task">Cancelar</button><button type="submit" class="primary-button" id="save-task">Guardar tarea</button></div>
+  </form>
+</dialog>
+<dialog id="delete-dialog" class="task-dialog" aria-labelledby="delete-title" aria-describedby="delete-question">
+  <form id="delete-form">
+    <div class="dialog-top"><h2 id="delete-title">¿Deseas eliminar la tarea?</h2></div>
+    <p id="delete-question">Se eliminará <strong id="delete-task-name"></strong> de tu block. Esta acción no se puede deshacer.</p>
+    <div id="delete-notice" class="notice" role="alert" hidden></div>
+    <div class="dialog-actions">
+      <button type="button" id="cancel-delete" class="secondary-button" autofocus>Cancelar</button>
+      <button type="submit" id="confirm-delete" class="primary-button danger-button">Eliminar tarea</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="welcome-page">
+  <header class="welcome-header">
+    <a href="{{ url_for('index') }}" class="brand"><img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" /><span>Tu block de tareas<span class="brand-dot">.</span></span></a>
+    <nav class="welcome-nav" aria-label="Cuenta">
+      {% if user %}
+      <a class="nav-link" href="{{ url_for('tasks') }}">Mis tareas</a>
+      {% else %}
+      <a class="nav-link" href="{{ url_for('login') }}">Iniciar sesión</a>
+      <a class="nav-link" href="{{ url_for('register') }}">Registrarse</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main id="main-content" class="welcome-main">
+    <section class="welcome-copy">
+      <p class="eyebrow">UN POCO DE ORDEN, MUCHA MÁS CALMA</p>
+      <h1>Tu espacio<br />para <span>organizarte.</span></h1>
+      <p class="welcome-description">Saca los pendientes de tu cabeza y dales su lugar. Planea tus días, mira lo que viene y avanza a tu ritmo.</p>
+      <a class="primary-button welcome-cta" href="{{ url_for('tasks') }}">Entrar a mi block</a>
+      <p class="welcome-note">Tus planes, un mes a la vez.</p>
+    </section>
+    <div class="notebook" aria-hidden="true">
+      <div class="notebook-binding"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="notebook-top"><span>MI ESPACIO</span><span class="notebook-check">✓</span></div>
+      <h2>Hacer sitio<br />a lo importante.</h2>
+      <div class="notebook-task"><span class="mock-checkbox checked">✓</span><span>Empezar con una idea</span></div>
+      <div class="notebook-task"><span class="mock-checkbox checked">✓</span><span>Ponerle una fecha</span></div>
+      <div class="notebook-task"><span class="mock-checkbox"></span><span>Dar el siguiente paso</span></div>
+      <div class="notebook-bottom"><span>Sin prisa. Con un plan.</span><span>✦</span></div>
+      <div class="floating-note">Menos pendientes.<br /><strong>Más espacio para ti.</strong></div>
+    </div>
+    <section class="welcome-features" aria-label="Qué puedes hacer en tu block">
+      <article><span class="feature-icon" aria-hidden="true">☷</span><h2>Todo en su lugar</h2><p>Una lista clara para tus ideas y pendientes.</p></article>
+      <article><span class="feature-icon" aria-hidden="true">▦</span><h2>Tu tiempo, a la vista</h2><p>Un calendario con el inicio y el fin de cada tarea.</p></article>
+      <article><span class="feature-icon" aria-hidden="true">✓</span><h2>Cada paso cuenta</h2><p>Marca tus avances y mira todo lo que has hecho.</p></article>
+    </section>
+  </main>
+  <footer class="welcome-footer">Un lugar para tus planes. Y para empezar de nuevo cuando lo necesites.</footer>
+</div>
+{% endblock %}
