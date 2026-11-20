@@ -48,10 +48,12 @@ pip install -r requirements.txt
 
 ## 2. Arrancar el backend (terminal 1)
 
+En la raíz del proyecto, copia `.env.example` a `.env` si aún no lo tienes. En PowerShell puedes hacerlo con `Copy-Item .env.example .env`. Deja `DATABASE_URL` vacío para usar SQLite o pon ahí la URL de tu PostgreSQL de desarrollo. En Vercel, configura la URL de producción en **Settings → Environment Variables**.
+
 Desde la raíz del proyecto, con el entorno virtual activado:
 
 ```bash
-python -m uvicorn backend.main:app --reload --port 8000
+python -m uvicorn backend.main:app --env-file .env --reload --port 8000
 ```
 
 La API estará disponible en **http://127.0.0.1:8000**, y puedes explorar sus endpoints desde **http://127.0.0.1:8000/docs**.

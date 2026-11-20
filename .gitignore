@@ -10,6 +10,7 @@ backend/todos.db
 smtp-gmail.local.psd1
 .env
 .env.*
+!/.env.example
 .vercel/
 .codex/
 .agents/
