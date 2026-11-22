@@ -3,28 +3,42 @@ from time import time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path
-from pydantic import BaseModel, EmailStr, StringConstraints
+from pydantic import EmailStr, StringConstraints
 
 from .accounts import CurrentUser
-from .db import database
+from .db import PostgresConnection, database
 from .mail import send_workspace_notice
+from .rate_limits import WORKSPACE_INVITES, enforce_rate_limits
+from .request_security import APIInput, RecordID
 
 router = APIRouter(prefix="/api")
 INVITATION_LIFETIME = 7 * 24 * 60 * 60
 INVITATION_RESEND_DELAY = 60
 
 
-class WorkspaceCreate(BaseModel):
+class WorkspaceCreate(APIInput):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 
 
-class InvitationCreate(BaseModel):
+class InvitationCreate(APIInput):
     email: EmailStr
 
 
-def require_member(connection, workspace_id: int, user_id: int) -> dict:
+class MemberPermissions(APIInput):
+    can_change_status: bool
+
+
+def require_member(connection, workspace_id: int, user_id: int, *, write=False) -> dict:
+    if write and isinstance(connection, PostgresConnection):
+        locked = connection.execute("""
+            SELECT id FROM workspaces WHERE id = ? AND EXISTS (
+                SELECT 1 FROM workspace_members WHERE workspace_id = workspaces.id AND user_id = ?
+            ) FOR UPDATE
+        """, (workspace_id, user_id)).fetchone()
+        if locked is None:
+            raise HTTPException(404, "Espacio de trabajo no encontrado.")
     workspace = connection.execute("""
-        SELECT w.id, w.name, w.owner_id
+        SELECT w.id, w.name, w.owner_id, m.can_change_status
         FROM workspaces w JOIN workspace_members m ON m.workspace_id = w.id
         WHERE w.id = ? AND m.user_id = ?
     """, (workspace_id, user_id)).fetchone()
@@ -58,19 +72,46 @@ def create_workspace(data: WorkspaceCreate, user: CurrentUser):
 
 
 @router.get("/workspaces/{workspace_id}")
-def get_workspace(workspace_id: int, user: CurrentUser):
+def get_workspace(workspace_id: RecordID, user: CurrentUser):
     with database() as connection:
         workspace = require_member(connection, workspace_id, user["id"])
         members = connection.execute("""
-            SELECT users.id, users.email
+            SELECT users.id, users.email, m.can_change_status
             FROM workspace_members m JOIN users ON users.id = m.user_id
             WHERE m.workspace_id = ? ORDER BY users.email
         """, (workspace_id,)).fetchall()
-        return {**workspace, "can_invite": workspace["owner_id"] == user["id"], "members": [dict(row) for row in members]}
+        owner = workspace["owner_id"] == user["id"]
+        return {
+            **workspace,
+            "can_invite": owner,
+            "can_change_status": owner or bool(workspace["can_change_status"]),
+            "members": [
+                {**dict(row), "can_change_status": row["id"] == workspace["owner_id"] or bool(row["can_change_status"])}
+                for row in members
+            ],
+        }
+
+
+@router.patch("/workspaces/{workspace_id}/members/{member_id}")
+def update_member_permissions(workspace_id: RecordID, member_id: RecordID, data: MemberPermissions, user: CurrentUser):
+    with database(write=True) as connection:
+        workspace = require_member(connection, workspace_id, user["id"], write=True)
+        if workspace["owner_id"] != user["id"]:
+            raise HTTPException(403, "Solo el propietario puede cambiar los permisos.")
+        if member_id == user["id"]:
+            raise HTTPException(422, "El propietario siempre puede cambiar el estado.")
+        updated = connection.execute("""
+            UPDATE workspace_members SET can_change_status = ?
+            WHERE workspace_id = ? AND user_id = ?
+        """, (int(data.can_change_status), workspace_id, member_id))
+        if not updated.rowcount:
+            raise HTTPException(404, "El miembro no pertenece al espacio.")
+        return {"can_change_status": data.can_change_status}
 
 
 @router.post("/workspaces/{workspace_id}/invitations", status_code=201)
-def invite_to_workspace(workspace_id: int, data: InvitationCreate, user: CurrentUser):
+def invite_to_workspace(workspace_id: RecordID, data: InvitationCreate, user: CurrentUser):
+    enforce_rate_limits((WORKSPACE_INVITES, user["id"]))
     email = data.email.lower()
     invitation_id = secrets.token_hex(32)
     expires_at = int(time()) + INVITATION_LIFETIME

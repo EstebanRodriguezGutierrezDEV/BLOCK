@@ -1,4 +1,4 @@
-from backend import accounts, db
+from backend import accounts, db, rate_limits
 from conftest import PASSWORD, register_and_login
 
 EMAIL = "marta@example.com"
@@ -48,3 +48,37 @@ def test_all_task_routes_require_login_and_enforce_ownership(api):
     with db.database() as connection:
         connection.execute("UPDATE sessions SET expires_at = 0 WHERE token_hash = ?", (accounts.token_hash(owner),))
     assert api.get(path, headers=owner_headers).status_code == 401
+
+
+def test_login_limits_are_keyed_by_normalized_email_and_expire(api, monkeypatch):
+    credentials = {"email": EMAIL, "password": PASSWORD}
+    clock = [1200]
+    monkeypatch.setattr(rate_limits, "time", lambda: clock[0])
+    monkeypatch.setattr(accounts, "LOGIN_ACCOUNT", accounts.LOGIN_ACCOUNT._replace(attempts=2))
+    assert api.post("/api/auth/register", json=credentials).status_code == 201
+
+    for email in (EMAIL, EMAIL.upper()):
+        wrong = {"email": email, "password": "Incorrecta"}
+        assert api.post("/api/auth/login", json=wrong).status_code == 401
+    blocked = api.post("/api/auth/login", json=credentials)
+    assert blocked.status_code == 429
+    assert blocked.headers["Retry-After"] == "300"
+    assert blocked.headers["Cache-Control"] == "no-store"
+    assert "token" not in blocked.json()
+    assert api.post("/api/auth/login", json={**credentials, "email": "otra@example.com"}).status_code == 401
+
+    clock[0] += int(blocked.headers["Retry-After"])
+    assert api.post("/api/auth/login", json=credentials).status_code == 200
+
+
+def test_registration_ignores_untrusted_forwarding_headers(api, monkeypatch):
+    monkeypatch.setattr(rate_limits, "time", lambda: 1200)
+    monkeypatch.setattr(accounts, "REGISTER_IP", accounts.REGISTER_IP._replace(attempts=1))
+    credentials = {"email": EMAIL, "password": PASSWORD}
+    assert api.post("/api/auth/register", json=credentials).status_code == 201
+    blocked = api.post(
+        "/api/auth/register", json={**credentials, "email": "otra@example.com"},
+        headers={"X-Forwarded-For": "192.0.2.3", "X-Vercel-Forwarded-For": "192.0.2.4"},
+    )
+    assert blocked.status_code == 429
+    assert int(blocked.headers["Retry-After"]) > 0

@@ -5,8 +5,11 @@ Tu block de tareas es una aplicación web para organizar tus pendientes y verlos
 ## Qué puedes hacer
 
 - Crear, editar, completar y eliminar tareas con fechas de inicio y fin.
-- Navegar por meses y años y seleccionar un día para ver sus tareas.
+- Ver tus tareas personales y compartidas juntas en el calendario y consultar todas las que coinciden en un día.
 - Distinguir por color las tareas por empezar, en curso, vencidas y completadas.
 - Buscar y filtrar tareas, y consultar el progreso del mes.
 - Crear espacios compartidos, invitar a cuentas registradas y aceptar o rechazar las invitaciones desde Mensajes.
-- Colaborar en tableros con comentarios y recibir avisos por correo cuando el envío esté configurado.
+- Ordenar las tarjetas arrastrándolas, dejar comentarios y decidir quién puede cambiar su estado si eres el propietario del tablero.
+- Adjuntar archivos de hasta 4 MiB a las tareas compartidas y descargarlos desde la tarjeta.
+- Añadir amigos por correo y conversar en privado cuando acepten la solicitud.
+- Recibir avisos de invitaciones a espacios por correo cuando el envío esté configurado.

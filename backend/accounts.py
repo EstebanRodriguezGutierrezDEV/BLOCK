@@ -3,19 +3,21 @@ import secrets
 from time import time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr, Field, SecretStr
+from pydantic import EmailStr, Field, SecretStr
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import database
+from .rate_limits import LOGIN_ACCOUNT, LOGIN_IP, REGISTER_IP, client_network, enforce_rate_limits
+from .request_security import APIInput, SESSION_TOKEN_PATTERN
 
 router = APIRouter(prefix="/api/auth")
 SESSION_SECONDS = 7 * 24 * 60 * 60
 DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
 
 
-class Login(BaseModel):
+class Login(APIInput):
     email: EmailStr
     password: SecretStr = Field(min_length=1, max_length=128)
 
@@ -29,7 +31,7 @@ def token_hash(token: str) -> str:
 
 
 def session_hash(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(HTTPBearer(auto_error=False))]) -> str:
-    if credentials is None or len(credentials.credentials) != 43:
+    if credentials is None or not SESSION_TOKEN_PATTERN.fullmatch(credentials.credentials):
         raise HTTPException(401, "Inicia sesión para acceder a tus tareas", headers={"WWW-Authenticate": "Bearer"})
     return token_hash(credentials.credentials)
 
@@ -50,7 +52,8 @@ CurrentUser = Annotated[dict, Depends(current_user)]
 
 
 @router.post("/register", status_code=201)
-def register(data: Registration):
+def register(data: Registration, request: Request):
+    enforce_rate_limits((REGISTER_IP, client_network(request)))
     password_hash = generate_password_hash(data.password.get_secret_value())
     with database() as connection:
         created = connection.execute("""
@@ -64,9 +67,11 @@ def register(data: Registration):
 
 
 @router.post("/login")
-def login(data: Login, response: Response):
+def login(data: Login, request: Request):
+    email = data.email.lower()
+    enforce_rate_limits((LOGIN_IP, client_network(request)), (LOGIN_ACCOUNT, email))
     with database() as connection:
-        user = connection.execute("SELECT id, password_hash FROM users WHERE email = ?", (data.email.lower(),)).fetchone()
+        user = connection.execute("SELECT id, password_hash FROM users WHERE email = ?", (email,)).fetchone()
     password_hash = user["password_hash"] if user else None
     correct = check_password_hash(password_hash or DUMMY_PASSWORD_HASH, data.password.get_secret_value())
     if not correct or not password_hash:
@@ -77,13 +82,11 @@ def login(data: Login, response: Response):
     with database() as connection:
         connection.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
         connection.execute("INSERT INTO sessions VALUES (?, ?, ?)", (token_hash(token), user["id"], now + SESSION_SECONDS))
-    response.headers["Cache-Control"] = "no-store"
     return {"token": token, "expires_in": SESSION_SECONDS}
 
 
 @router.get("/me")
-def me(user: CurrentUser, response: Response):
-    response.headers["Cache-Control"] = "no-store"
+def me(user: CurrentUser):
     return user
 
 

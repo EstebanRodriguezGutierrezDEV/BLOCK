@@ -58,7 +58,7 @@ function taskStatus(task, today = dateKey(new Date())) {
 function matchesFilters(task) {
   if (state.filter === "pending" && task.completed) return false;
   if (state.filter === "completed" && !task.completed) return false;
-  return `${task.title} ${task.description}`.toLocaleLowerCase("es").includes(state.search);
+  return `${task.title} ${task.description} ${task.workspace_name ?? ""}`.toLocaleLowerCase("es").includes(state.search);
 }
 
 function sortedTasks(tasks) {
@@ -158,24 +158,26 @@ function renderCalendar() {
     button.disabled = date.getFullYear() < 1 || date.getFullYear() > 9999;
     button.setAttribute("aria-pressed", String(key === state.selectedDay));
     if (key === today) button.setAttribute("aria-current", "date");
-    const description = dayTasks.map((task) => `${task.title} (${taskStatus(task, today).label})`).join(", ");
+    const description = dayTasks.map((task) => {
+      const source = task.workspace_name ? `, ${task.workspace_name}` : "";
+      return `${task.title} (${taskStatus(task, today).label}${source})`;
+    }).join(", ");
     button.setAttribute("aria-label", `${date.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}: ${dayTasks.length} ${dayTasks.length === 1 ? "tarea" : "tareas"}${description ? `. ${description}` : ""}`);
     const number = document.createElement("span");
     number.className = "day-number";
     number.textContent = date.getDate();
     button.append(number);
-    dayTasks.slice(0, 2).forEach((task) => {
+    for (const task of dayTasks) {
+      const status = taskStatus(task, today);
       const event = document.createElement("span");
-      event.className = `calendar-event status-${taskStatus(task, today).key}`;
+      event.className = `calendar-event status-${status.key}`;
       event.textContent = task.title;
-      event.title = `${task.title} · ${taskStatus(task, today).label} · ${formatDate(task.start_date)} – ${formatDate(task.end_date)}`;
+      event.title = `${task.title} · ${status.label} · ${formatDate(task.start_date)} – ${formatDate(task.end_date)}`;
+      if (task.workspace_name) {
+        event.classList.add("calendar-event-shared");
+        event.title += ` · ${task.workspace_name}`;
+      }
       button.append(event);
-    });
-    if (dayTasks.length > 2) {
-      const more = document.createElement("span");
-      more.className = "calendar-more";
-      more.textContent = `+${dayTasks.length - 2} más`;
-      button.append(more);
     }
     days.push(button);
   }
@@ -192,27 +194,6 @@ function createTaskItem(task) {
   const status = taskStatus(task);
   const item = document.createElement("li");
   item.className = `task-item status-${status.key}${task.completed ? " completed" : ""}`;
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.className = "task-checkbox";
-  checkbox.checked = task.completed;
-  checkbox.setAttribute("aria-label", `Marcar «${task.title}» como ${task.completed ? "pendiente" : "completada"}`);
-  checkbox.addEventListener("change", async () => {
-    checkbox.disabled = true;
-    editButton.disabled = true;
-    deleteButton.disabled = true;
-    clearError();
-    try {
-      const updated = await request(`/api/tasks/${task.id}`, { method: "PATCH", body: JSON.stringify({ completed: checkbox.checked }) });
-      upsertTask(updated);
-    } catch (error) {
-      checkbox.checked = task.completed;
-      checkbox.disabled = false;
-      editButton.disabled = false;
-      deleteButton.disabled = false;
-      showError(error);
-    }
-  });
   const content = document.createElement("div");
   content.className = "task-content";
   const title = document.createElement("h3");
@@ -241,6 +222,17 @@ function createTaskItem(task) {
   dates.append("Inicio: ", start, " · Fin: ", end);
   meta.append(badge, dates);
   content.append(meta);
+  if (task.workspace_id != null) {
+    const workspace = document.createElement("a");
+    workspace.className = "task-workspace-link";
+    workspace.href = `/espacios/${task.workspace_id}`;
+    workspace.textContent = task.workspace_name;
+    workspace.title = `Abrir tablero ${task.workspace_name}`;
+    meta.append(workspace);
+    item.append(content);
+    return item;
+  }
+
   const actions = document.createElement("div");
   actions.className = "task-actions";
   const editButton = document.createElement("button");
@@ -260,6 +252,27 @@ function createTaskItem(task) {
     clearError($("#delete-notice"));
     deleteDialog.showModal();
     cancelDelete.focus();
+  });
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "task-checkbox";
+  checkbox.checked = task.completed;
+  checkbox.setAttribute("aria-label", `Marcar «${task.title}» como ${task.completed ? "pendiente" : "completada"}`);
+  checkbox.addEventListener("change", async () => {
+    checkbox.disabled = true;
+    editButton.disabled = true;
+    deleteButton.disabled = true;
+    clearError();
+    try {
+      const updated = await request(`/api/tasks/${task.id}`, { method: "PATCH", body: JSON.stringify({ completed: checkbox.checked }) });
+      upsertTask(updated);
+    } catch (error) {
+      checkbox.checked = task.completed;
+      checkbox.disabled = false;
+      editButton.disabled = false;
+      deleteButton.disabled = false;
+      showError(error);
+    }
   });
   actions.append(editButton, deleteButton);
   item.append(checkbox, content, actions);
@@ -335,7 +348,14 @@ async function loadTasks() {
   clearError();
   render();
   try {
-    state.tasks = await request("/api/tasks");
+    const tasks = [];
+    let path = "/api/calendar/tasks";
+    do {
+      const page = await request(path);
+      for (const task of page.tasks) tasks.push(task);
+      path = page.next_before_id == null ? null : `/api/calendar/tasks?before_id=${page.next_before_id}`;
+    } while (path);
+    state.tasks = tasks;
     state.loaded = true;
   } catch (error) {
     showError(error, $("#notice"), true);

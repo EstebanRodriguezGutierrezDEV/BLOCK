@@ -137,8 +137,8 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 .calendar-day.selected { box-shadow: inset 0 0 0 2px #9c87df; background: #f7f4ff; }
 .day-number { display: grid; place-items: center; width: 25px; height: 25px; font-size: .875rem; margin-left: 3px; margin-bottom: 3px; flex-shrink: 0; }
 .calendar-day.today .day-number { color: white; background: var(--primary); border-radius: 50%; font-weight: 700; }
-.calendar-event { display: block; width: 100%; font-size: .875rem; padding: 4px 6px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; border-left: 2px solid var(--status-border); color: var(--status-ink); background: var(--status-bg); }
-.calendar-more { color: #77718c; font-size: .75rem; padding: 2px 6px; }
+.calendar-event { display: block; flex-shrink: 0; width: 100%; font-size: .875rem; padding: 4px 6px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 3px; border-left: 2px solid var(--status-border); color: var(--status-ink); background: var(--status-bg); }
+.calendar-event-shared { border-left-width: 4px; border-left-style: double; }
 .tasks-section { margin-top: 34px; }
 .tasks-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .tasks-header .eyebrow { margin-bottom: 5px; }
@@ -158,6 +158,7 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 .task-description { font-size: .875rem; color: var(--muted); margin: 6px 0 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .task-meta { margin: 10px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .task-dates { font-size: .8125rem; color: #7b788f; }
+.task-workspace-link { font-size: .8125rem; color: var(--primary-dark); text-decoration: underline; overflow-wrap: anywhere; }
 .status-badge { background: var(--status-bg); color: var(--status-ink); padding: 3px 8px; border-radius: 5px; font-size: .75rem; }
 .task-item.completed .task-title { color: #9192a2; text-decoration: line-through; }
 .task-actions { display: flex; gap: 10px; padding-top: 2px; }
@@ -288,6 +289,9 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 .shared-members:empty { margin: 0; }
 .workspace-member { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; overflow-wrap: anywhere; font-size: .85rem; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; background: white; }
 .owner-label { color: var(--primary-dark); font-size: .75rem; font-weight: 650; }
+.member-permissions { list-style: none; padding: 0; margin: 0; }
+.member-permission { display: flex; align-items: center; gap: 10px; padding: 10px 0; overflow-wrap: anywhere; }
+.member-permission input { width: 18px; height: 18px; flex: none; accent-color: var(--primary); }
 #no-spaces { padding: clamp(22px, 6vw, 54px); }
 #no-spaces h2 { margin-top: 0; }
 #no-spaces button { margin-top: 18px; }
@@ -302,8 +306,12 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 .column-add { margin-left: auto; }
 .kanban-list, .comment-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .column-empty { color: #60657b; font-size: .9rem; padding: 3px 4px; }
-.kanban-card { display: grid; gap: 8px; min-width: 0; padding: 14px; border: 1px solid #e4e2ec; border-radius: 10px; background: white; box-shadow: 0 1px 2px #23213b0d; }
+.kanban-card { position: relative; display: grid; gap: 8px; min-width: 0; padding: 14px; border: 1px solid #e4e2ec; border-radius: 10px; background: white; box-shadow: 0 1px 2px #23213b0d; cursor: grab; }
 .kanban-card.dragging { opacity: .55; }
+.kanban-list { position: relative; }
+.kanban-card.drop-before::before, .kanban-column.drop-end .kanban-list:not(:empty)::after { content: ""; position: absolute; inset-inline: 0; height: 3px; border-radius: 4px; background: var(--column-color); pointer-events: none; }
+.kanban-card.drop-before::before { top: -7px; }
+.kanban-column.drop-end .kanban-list:not(:empty)::after { bottom: -7px; }
 .kanban-card-title { background: none; border: 0; padding: 0; text-align: left; color: var(--ink); font-weight: 750; overflow-wrap: anywhere; }
 .kanban-card-title:hover { color: var(--primary-dark); text-decoration: underline; }
 .kanban-description, .kanban-date { margin: 0; font-size: .875rem; color: #626880; overflow-wrap: anywhere; }
@@ -311,10 +319,36 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 .kanban-card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; border-top: 1px solid var(--line); padding-top: 7px; }
 .kanban-card-actions .text-button { padding-left: 0; }
 .kanban-card-actions select { appearance: auto; width: auto; max-width: 100%; padding: 5px; font-size: .8rem; }
+.kanban-order { display: flex; gap: 4px; }
+.kanban-order .icon-button { width: 30px; height: 30px; font-size: 1rem; }
 .task-dialog .dialog-error { margin: 12px 0 0; overflow-wrap: anywhere; }
 .invite-status { color: #305e4a; padding: 12px; border-radius: 8px; background: #e4f2ec; }
 .inbox { max-width: 1050px; }
-.inbox .shared-header p { color: #60657b; margin: 8px 0 0; }
+.social-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr); align-items: start; gap: 16px; }
+.social-panel { min-width: 0; padding: clamp(14px, 3vw, 22px); border: 1px solid var(--line); border-radius: 12px; background: white; }
+.social-panel h2, .workspace-inbox > h2 { font-size: 1.1rem; margin: 0 0 14px; }
+.social-panel h3 { font-size: .95rem; margin: 16px 0 8px; overflow-wrap: anywhere; }
+.social-panel .field-hint, .workspace-inbox .field-hint { color: #626880; margin: 10px 0; }
+.social-panel .notice { margin: 10px 0 0; overflow-wrap: anywhere; }
+.friend-form, .chat-form { display: grid; gap: 8px; }
+.friend-form label, .chat-form label { margin: 0; }
+.friend-form input, .chat-form textarea { width: 100%; min-width: 0; padding: 9px 11px; border: 1px solid #d6d2e7; border-radius: 8px; background: #faf9fd; color: var(--ink); }
+.chat-form textarea { resize: vertical; }
+.friend-form button, .chat-form button { justify-self: end; }
+.friend-list { list-style: none; margin: 0; padding: 0; }
+.friend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.friend-row strong { flex: 1 0 100%; min-width: 0; overflow-wrap: anywhere; font-size: .875rem; }
+.friend-row .text-button { padding-left: 0; }
+.friend-row .secondary-button { padding: 6px 9px; font-size: .84rem; }
+.chat-panel { min-height: 150px; }
+.chat-history { height: clamp(190px, 36vh, 380px); overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; padding: 12px; border-radius: 8px; background: #f6f4fb; margin-bottom: 14px; }
+.chat-history:focus-visible { outline: 3px solid #b4a4f7; outline-offset: 2px; }
+.chat-messages { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.chat-message { width: fit-content; max-width: 95%; padding: 8px 12px; border-radius: 9px; background: white; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.chat-message.own { justify-self: end; background: #ebe4fc; }
+.chat-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; color: #5f647a; font-size: .78rem; }
+.chat-message p { margin: 4px 0 0; white-space: pre-wrap; }
+.workspace-inbox { margin-top: 24px; }
 .inbox-list { margin: 0; padding: 0; display: grid; gap: 12px; list-style: none; }
 .inbox-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: white; }
 .inbox-summary { min-width: 0; overflow-wrap: anywhere; }
@@ -322,9 +356,14 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 .inbox-summary p { color: #60657b; margin: 0; }
 .inbox-summary .inbox-expiry { margin-top: 6px; font-size: .85rem; }
 .inbox-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-#messages-empty h2 { margin-top: 0; }
-.card-discussion { margin-top: 24px; padding-top: 15px; border-top: 1px solid var(--line); }
-.card-discussion h3 { display: inline-block; margin: 0 10px 12px 0; }
+.card-discussion, .card-attachments { margin-top: 24px; padding-top: 15px; border-top: 1px solid var(--line); }
+.card-discussion h3, .card-attachments h3 { display: inline-block; margin: 0 10px 12px 0; }
+.attachment-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.attachment-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #faf9fe; }
+.attachment-row div { min-width: 0; overflow-wrap: anywhere; }
+.attachment-detail { display: block; color: #5f647a; font-size: .8rem; }
+.card-attachments input[type="file"]::file-selector-button { border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; margin-right: 8px; background: white; color: var(--primary-dark); cursor: pointer; }
+#attachment-limit { margin: 6px 0 0; }
 .comment { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #faf9fe; }
 .comment-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; overflow-wrap: anywhere; font-size: .8rem; color: #5f647a; }
 .comment-body { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -345,5 +384,6 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 @media (max-width: 600px) {
   .kanban { grid-template-columns: 1fr; gap: 12px; }
   .kanban-column { min-height: 110px; padding: 10px; }
+  .social-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }

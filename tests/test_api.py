@@ -5,6 +5,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 from werkzeug.security import generate_password_hash
 from backend import db, main
+from backend.request_security import MAX_JSON_BYTES, MAX_RECORD_ID
 from conftest import PASSWORD, register_and_login
 
 
@@ -16,6 +17,28 @@ def client(api):
     token = register_and_login(api, "marta@example.com")
     api.headers["Authorization"] = f"Bearer {token}"
     return api
+
+
+def test_api_bounds_requests_and_does_not_echo_rejected_values(client):
+    oversized = b"x" * (MAX_JSON_BYTES + 1)
+    json_headers = {"Content-Type": "application/json"}
+    assert client.post("/api/tasks", content=oversized, headers=json_headers).status_code == 413
+    chunks = iter([b"x" * MAX_JSON_BYTES, b"x"])
+    streamed = client.post("/api/tasks", content=chunks, headers=json_headers)
+    assert streamed.status_code == 413
+    assert streamed.headers["X-Content-Type-Options"] == "nosniff"
+    assert client.post("/api/tasks", content=b"{}", headers={"Content-Type": "text/plain"}).status_code == 415
+
+    title = "contenido privado\x00"
+    response = client.post("/api/tasks", json={"title": title, **DATES})
+    assert response.status_code == 422
+    assert "contenido privado" not in response.text
+    assert '"input"' not in response.text
+    assert client.get(f"/api/tasks/{MAX_RECORD_ID + 1}").status_code == 422
+    assert client.get("/api/tasks", params={"workspace_id": MAX_RECORD_ID + 1}).status_code == 422
+    tasks = client.get("/api/tasks")
+    assert tasks.json() == []
+    assert tasks.headers["Cache-Control"] == "no-store"
 
 
 def test_crud(client):

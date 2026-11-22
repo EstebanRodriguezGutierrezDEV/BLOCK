@@ -1,6 +1,7 @@
 from time import time
 
-from backend import db, mail
+from backend import db, mail, main
+from backend.attachment_policy import MAX_ATTACHMENT_BYTES
 from conftest import register_and_login
 
 
@@ -58,8 +59,46 @@ def test_shared_tasks_and_comments_are_visible_only_to_members(api):
     assert api.get("/api/workspaces", headers=guest).json() == [workspace]
     assert api.post(space_path + "/invitations", headers=guest, json={"email": "otra@example.com"}).status_code == 403
 
+    guest_id = api.get("/api/auth/me", headers=guest).json()["id"]
+    grant = f"{space_path}/members/{guest_id}"
+    status_permission = {"can_change_status": True}
+    assert api.get(space_path, headers=guest).json()["can_change_status"] is False
+    assert api.patch(grant, headers=outsider, json=status_permission).status_code == 404
+    assert api.patch(grant, headers=guest, json=status_permission).status_code == 403
+    for data in ({"board_status": "doing"}, {"completed": True}):
+        assert api.patch(task + scope, headers=guest, json=data).status_code == 403
+    assert api.patch(
+        task + "/position" + scope, headers=guest, json={"board_status": "done"},
+    ).status_code == 403
+    assert api.post(
+        "/api/tasks" + scope, headers=guest, json={**task_data("Bloqueada"), "board_status": "doing"},
+    ).status_code == 403
+    assert api.patch(task + scope, headers=guest, json={"description": "Revisar"}).status_code == 200
+
+    second = api.post("/api/tasks" + scope, headers=guest, json=task_data("Segunda")).json()
+    second_position = f"/api/tasks/{second['id']}/position" + scope
+    reordered = api.patch(
+        second_position, headers=guest, json={"board_status": "todo", "before_task_id": shared["id"]},
+    )
+    assert [row["id"] for row in reordered.json()] == [second["id"], shared["id"]]
+    assert api.get("/api/tasks" + scope, headers=owner).json() == reordered.json()
+    assert api.patch(second_position, headers=outsider, json={"board_status": "todo"}).status_code == 404
+    assert api.patch(grant, headers=owner, json=status_permission).json() == status_permission
+    assert api.get(space_path, headers=guest).json()["can_change_status"] is True
+    assert api.patch(
+        second_position, headers=guest, json={"board_status": "doing", "before_task_id": shared["id"]},
+    ).status_code == 409
+
     changed = api.patch(task + scope, headers=guest, json={"board_status": "doing"}).json()
     assert changed["board_status"] == "doing" and not changed["completed"]
+    cross_column = api.patch(
+        second_position, headers=guest, json={"board_status": "doing", "before_task_id": shared["id"]},
+    )
+    assert [(row["id"], row["board_status"]) for row in cross_column.json()] == [
+        (second["id"], "doing"), (shared["id"], "doing"),
+    ]
+    assert api.patch(grant, headers=owner, json={"can_change_status": False}).status_code == 200
+    assert api.patch(second_position, headers=guest, json={"board_status": "done"}).status_code == 403
     assert api.patch(task + scope, headers=owner, json={"board_status": "done"}).json()["completed"]
     comment_path = task + "/comments" + scope
     assert api.post(comment_path, headers=guest, json={"body": "  "}).status_code == 422
@@ -96,6 +135,99 @@ def test_invitation_resends_rejection_and_expiry(api):
         connection.execute("UPDATE workspace_invitations SET expires_at = ?", (int(time()) - 1,))
     assert api.post(f"/api/messages/{expiring}/accept", headers=guest).status_code == 404
     assert api.get("/api/workspaces", headers=guest).json() == []
+
+
+def test_calendar_only_includes_personal_tasks_and_accepted_workspaces(api, monkeypatch):
+    monkeypatch.setattr(main, "CALENDAR_PAGE_SIZE", 2)
+    owner = headers(register_and_login(api, "owner@example.com"))
+    guest = headers(register_and_login(api, "guest@example.com"))
+    calendar = "/api/calendar/tasks"
+    assert api.get(calendar).status_code == 401
+
+    personal = api.post("/api/tasks", headers=guest, json=task_data("Personal invitado")).json()
+    api.post("/api/tasks", headers=owner, json=task_data("Personal propietario"))
+    allowed = []
+    for name in ("Equipo A", "Equipo B", "Espacio privado"):
+        space = api.post("/api/workspaces", headers=owner, json={"name": name}).json()
+        card = api.post(
+            "/api/tasks", headers=owner, params={"workspace_id": space["id"]}, json=task_data(name),
+        ).json()
+        if name != "Espacio privado":
+            allowed.append({**card, "workspace_id": space["id"], "workspace_name": name})
+            invite = api.post(
+                f"/api/workspaces/{space['id']}/invitations", headers=owner, json={"email": "guest@example.com"},
+            )
+            assert invite.status_code == 201
+
+    personal_entry = {**personal, "workspace_id": None, "workspace_name": None}
+    assert api.get(calendar, headers=guest).json() == {"tasks": [personal_entry], "next_before_id": None}
+    for invite in api.get("/api/messages", headers=guest).json():
+        assert api.post(f"/api/messages/{invite['id']}/accept", headers=guest).status_code == 200
+    first_page = api.get(calendar, headers=guest).json()
+    assert first_page == {"tasks": allowed[::-1], "next_before_id": str(allowed[0]["id"])}
+    second_page = api.get(calendar, headers=guest, params={"before_id": first_page["next_before_id"]}).json()
+    assert second_page == {"tasks": [personal_entry], "next_before_id": None}
+    assert api.get("/api/tasks", headers=guest).json() == [personal]
+
+
+def test_shared_attachments_are_binary_and_scoped_to_members_and_tasks(api):
+    owner = headers(register_and_login(api, "owner@example.com"))
+    guest = headers(register_and_login(api, "guest@example.com"))
+    outsider = headers(register_and_login(api, "outsider@example.com"))
+    space = api.post("/api/workspaces", headers=owner, json={"name": "Proyecto"}).json()["id"]
+    scope = {"workspace_id": space}
+    task = api.post("/api/tasks", params=scope, headers=owner, json=task_data("Compartida")).json()["id"]
+    second = api.post("/api/tasks", params=scope, headers=owner, json=task_data("Segunda")).json()["id"]
+    personal = api.post("/api/tasks", headers=owner, json=task_data("Personal")).json()["id"]
+    attachments = f"/api/tasks/{task}/attachments"
+    sender = {**guest, "Content-Type": "application/octet-stream"}
+    file_name = "Guía + otoño.xyz"
+    payload = b"<h1>Archivo de prueba</h1>\x00\xff"
+
+    invitation = api.post(
+        f"/api/workspaces/{space}/invitations", headers=owner, json={"email": "guest@example.com"},
+    )
+    assert invitation.status_code == 201
+    assert api.get(attachments, params=scope, headers=guest).status_code == 404
+    invite_id = api.get("/api/messages", headers=guest).json()[0]["id"]
+    assert api.post(f"/api/messages/{invite_id}/accept", headers=guest).status_code == 200
+
+    params = {**scope, "file_name": file_name}
+    assert api.post(attachments, headers=sender, params=params, content=b"x" * (MAX_ATTACHMENT_BYTES + 1)).status_code == 413
+    assert api.post(
+        attachments, headers=sender, params={**scope, "file_name": "../archivo"}, content=payload,
+    ).status_code == 422
+    assert api.post(attachments, headers=outsider | {"Content-Type": "application/octet-stream"},
+                    params=params, content=payload).status_code == 404
+    assert api.get(f"/api/tasks/{personal}/attachments", params=scope, headers=owner).status_code == 404
+    assert api.get(attachments, params=scope, headers=owner).json() == []
+
+    uploaded = api.post(attachments, headers=sender, params=params, content=payload)
+    assert uploaded.status_code == 201
+    attachment = uploaded.json()
+    assert attachment["file_name"] == file_name
+    assert attachment["size_bytes"] == len(payload)
+    assert attachment["uploader_email"] == "guest@example.com"
+    assert "content" not in attachment
+    assert api.get(attachments, params=scope, headers=owner).json() == [attachment]
+    assert api.get(attachments, params=scope, headers=outsider).status_code == 404
+    download_path = f"{attachments}/{attachment['id']}"
+    assert api.get(download_path, params=scope).status_code == 401
+    assert api.get(download_path, params=scope, headers=outsider).status_code == 404
+    assert api.get(f"/api/tasks/{second}/attachments/{attachment['id']}", params=scope, headers=owner).status_code == 404
+
+    download = api.get(download_path, params=scope, headers=owner)
+    assert download.content == payload
+    assert download.headers["Content-Type"] == "application/octet-stream"
+    assert download.headers["Content-Disposition"] == "attachment; filename*=UTF-8''Gu%C3%ADa%20%2B%20oto%C3%B1o.xyz"
+    assert download.headers["X-Content-Type-Options"] == "nosniff"
+    assert download.headers["Cache-Control"] == "no-store"
+
+    assert api.post("/api/auth/logout", headers=guest).status_code == 204
+    assert api.get(download_path, params=scope, headers=guest).status_code == 401
+    assert api.delete(f"/api/tasks/{task}", params=scope, headers=owner).status_code == 204
+    with db.database() as connection:
+        assert connection.execute("SELECT id FROM task_attachments WHERE id = ?", (attachment["id"],)).fetchone() is None
 
 
 def test_mail_notice_uses_the_registered_recipient_and_keeps_the_invitation_on_failure(api, monkeypatch):

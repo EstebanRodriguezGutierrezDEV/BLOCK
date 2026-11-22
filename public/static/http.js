@@ -1,18 +1,27 @@
-export async function request(path, options = {}, loginPath = "/iniciar-sesion") {
+export async function request(path, settings = {}, loginPath = "/iniciar-sesion") {
+  const { headers: suppliedHeaders, responseType, timeoutMs = 15000, ...options } = settings;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = new Headers(suppliedHeaders);
+  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const sessionView = document.querySelector('meta[name="session-view"]');
+  if (sessionView) headers.set("X-Todo-Session-View", sessionView.content);
   try {
     let response;
     try {
       response = await fetch(path, {
         ...options,
         signal: controller.signal,
-        headers: options.body ? { "Content-Type": "application/json" } : {},
+        headers,
       });
     } catch (error) {
       throw new Error(error.name === "AbortError"
         ? "La conexión está tardando demasiado. Vuelve a intentarlo."
         : "No se pudo conectar con el servidor.");
+    }
+    if (response.status === 409 && response.headers.has("X-Todo-Session-Changed")) {
+      window.location.reload();
+      throw new Error("La sesión ha cambiado.");
     }
     if (response.status === 401) {
       window.location.replace(loginPath);
@@ -25,6 +34,7 @@ export async function request(path, options = {}, loginPath = "/iniciar-sesion")
         : "No se pudo completar la operación. Vuelve a intentarlo.";
       throw new Error(detail);
     }
+    if (responseType === "blob") return await response.blob();
     return response.status === 204 ? null : await response.json();
   } finally {
     clearTimeout(timeout);

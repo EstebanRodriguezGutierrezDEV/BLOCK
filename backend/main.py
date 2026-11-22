@@ -1,16 +1,20 @@
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date
 import sqlite3
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NamedTuple
+from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Request, Response, status
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi import FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 from .accounts import CurrentUser, router as accounts_router
-from .db import PostgresConnection, database, init_db
+from .db import PostgresConnection, database, init_db, utc_timestamp
+from .rate_limits import ATTACHMENT_UPLOADS, enforce_rate_limits
+from .request_security import APIInput, MAX_RECORD_ID, OptionalWorkspaceID, RecordID, RequestSecurity, WorkspaceID
+from .social import router as social_router
 from .workspaces import require_member, router as workspaces_router
 
 
@@ -26,14 +30,17 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.add_middleware(RequestSecurity)
 app.include_router(accounts_router)
 app.include_router(workspaces_router)
+app.include_router(social_router)
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, error: RequestValidationError):
     if not request.url.path.startswith("/api/auth/"):
-        return await request_validation_exception_handler(request, error)
+        details = [{key: item[key] for key in ("loc", "msg", "type")} for item in error.errors()]
+        return JSONResponse({"detail": details}, status_code=422)
 
     messages = {
         "email": "Introduce una dirección de correo válida.",
@@ -46,9 +53,10 @@ async def validation_error(request: Request, error: RequestValidationError):
 
 
 BoardStatus = Literal["todo", "doing", "done"]
+CALENDAR_PAGE_SIZE = 200
 
 
-class TaskCreate(BaseModel):
+class TaskCreate(APIInput):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=1000)
     start_date: date
@@ -70,7 +78,7 @@ class TaskCreate(BaseModel):
         return value
 
 
-class TaskUpdate(BaseModel):
+class TaskUpdate(APIInput):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=1000)
     completed: bool | None = None
@@ -98,68 +106,130 @@ class Task(BaseModel):
     created_at: str
     updated_at: str
     board_status: BoardStatus
+    board_position: int
 
 
-class CommentCreate(BaseModel):
+class CalendarTask(Task):
+    workspace_id: int | None
+    workspace_name: str | None
+
+
+class CalendarPage(BaseModel):
+    tasks: list[CalendarTask]
+    next_before_id: str | None
+
+
+class TaskPosition(APIInput):
+    board_status: BoardStatus
+    before_task_id: int | None = Field(default=None, gt=0, le=MAX_RECORD_ID)
+
+
+class CommentCreate(APIInput):
     body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
-def task_scope(connection, user_id: int, workspace_id: int | None) -> tuple[str, int]:
+class TaskScope(NamedTuple):
+    condition: str
+    key: int
+    can_change_status: bool
+
+
+def task_scope(connection, user_id: int, workspace_id: int | None, *, write=False) -> TaskScope:
     if workspace_id is None:
-        return "workspace_id IS NULL AND user_id = ?", user_id
-    require_member(connection, workspace_id, user_id)
-    return "workspace_id = ?", workspace_id
+        return TaskScope("workspace_id IS NULL AND user_id = ?", user_id, True)
+    workspace = require_member(connection, workspace_id, user_id, write=write)
+    return TaskScope("workspace_id = ?", workspace_id, workspace["owner_id"] == user_id or bool(workspace["can_change_status"]))
 
 
-def utc_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+def require_status_permission(scope: TaskScope) -> None:
+    if not scope.can_change_status:
+        raise HTTPException(403, "El propietario debe darte permiso para cambiar el estado de las tarjetas.")
+
+
+def next_board_position(connection, workspace_id: int, board_status: BoardStatus) -> int:
+    return connection.execute("""
+        SELECT COALESCE(MAX(board_position), 0) + 1 AS position
+        FROM tasks WHERE workspace_id = ? AND board_status = ?
+    """, (workspace_id, board_status)).fetchone()["position"]
+
+
+def read_tasks(connection, scope: TaskScope, shared: bool) -> list[dict]:
+    order = "board_position ASC, id DESC" if shared else "completed ASC, id DESC"
+    rows = connection.execute(
+        f"SELECT * FROM tasks WHERE {scope.condition} ORDER BY {order}", (scope.key,)
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def get_task_or_404(
     connection: sqlite3.Connection | PostgresConnection, task_id: int,
-    scope: tuple[str, int], *, for_update: bool = False,
+    scope: TaskScope, *, for_update: bool = False,
 ) -> dict:
-    condition, scope_id = scope
-    query = f"SELECT * FROM tasks WHERE id = ? AND {condition}"
+    query = f"SELECT * FROM tasks WHERE id = ? AND {scope.condition}"
     if for_update and isinstance(connection, PostgresConnection):
         query += " FOR UPDATE"
-    task = connection.execute(query, (task_id, scope_id)).fetchone()
+    task = connection.execute(query, (task_id, scope.key)).fetchone()
     if task is None:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
     return dict(task)
 
 
-@app.get("/api/tasks", response_model=list[Task])
-def list_tasks(user: CurrentUser, workspace_id: int | None = None):
+@app.get("/api/calendar/tasks", response_model=CalendarPage)
+def list_calendar_tasks(user: CurrentUser, before_id: Annotated[int | None, Query(ge=1, le=MAX_RECORD_ID)] = None):
+    cursor_filter = "AND t.id < ?" if before_id is not None else ""
+    params = (user["id"], before_id) if before_id is not None else (user["id"],)
     with database() as connection:
-        condition, scope_id = task_scope(connection, user["id"], workspace_id)
-        rows = connection.execute(
-            f"SELECT * FROM tasks WHERE {condition} ORDER BY completed ASC, id DESC", (scope_id,)
-        ).fetchall()
-        return [dict(row) for row in rows]
+        rows = connection.execute(f"""
+            SELECT t.*, NULL AS workspace_name
+            FROM tasks t
+            WHERE t.user_id = ? AND t.workspace_id IS NULL {cursor_filter}
+            UNION ALL
+            SELECT t.*, w.name AS workspace_name
+            FROM workspace_members m
+            JOIN workspaces w ON w.id = m.workspace_id
+            JOIN tasks t ON t.workspace_id = w.id
+            WHERE m.user_id = ? {cursor_filter}
+            ORDER BY id DESC
+            LIMIT ?
+        """, (*params, *params, CALENDAR_PAGE_SIZE + 1)).fetchall()
+    tasks = [dict(row) for row in rows[:CALENDAR_PAGE_SIZE]]
+    return {
+        "tasks": tasks,
+        "next_before_id": str(tasks[-1]["id"]) if len(rows) > CALENDAR_PAGE_SIZE else None,
+    }
+
+
+@app.get("/api/tasks", response_model=list[Task])
+def list_tasks(user: CurrentUser, workspace_id: OptionalWorkspaceID = None):
+    with database() as connection:
+        return read_tasks(connection, task_scope(connection, user["id"], workspace_id), workspace_id is not None)
 
 
 @app.get("/api/tasks/{task_id}", response_model=Task)
-def get_task(task_id: int, user: CurrentUser, workspace_id: int | None = None):
+def get_task(task_id: RecordID, user: CurrentUser, workspace_id: OptionalWorkspaceID = None):
     with database() as connection:
         return get_task_or_404(connection, task_id, task_scope(connection, user["id"], workspace_id))
 
 
 @app.post("/api/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
-def create_task(data: TaskCreate, user: CurrentUser, workspace_id: int | None = None):
-    with database() as connection:
-        task_scope(connection, user["id"], workspace_id)
+def create_task(data: TaskCreate, user: CurrentUser, workspace_id: OptionalWorkspaceID = None):
+    with database(write=workspace_id is not None) as connection:
+        scope = task_scope(connection, user["id"], workspace_id, write=True)
+        if data.board_status != "todo":
+            require_status_permission(scope)
+        position = next_board_position(connection, workspace_id, data.board_status) if workspace_id is not None else 0
         row = connection.execute(
-            """INSERT INTO tasks (user_id, workspace_id, title, description, start_date, end_date, board_status, completed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *""",
+            """INSERT INTO tasks (user_id, workspace_id, title, description, start_date, end_date,
+                                  board_status, completed, board_position)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *""",
             (user["id"], workspace_id, data.title, data.description.strip(), data.start_date.isoformat(),
-             data.end_date.isoformat(), data.board_status, data.board_status == "done"),
+             data.end_date.isoformat(), data.board_status, data.board_status == "done", position),
         ).fetchone()
         return dict(row)
 
 
 @app.patch("/api/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, data: TaskUpdate, user: CurrentUser, workspace_id: int | None = None):
+def update_task(task_id: RecordID, data: TaskUpdate, user: CurrentUser, workspace_id: OptionalWorkspaceID = None):
     changes = data.model_dump(exclude_unset=True, mode="json")
     if not changes:
         raise HTTPException(status_code=400, detail="No hay cambios para guardar")
@@ -174,7 +244,7 @@ def update_task(task_id: int, data: TaskUpdate, user: CurrentUser, workspace_id:
         changes["completed"] = completed
 
     with database(write=True) as connection:
-        scope = task_scope(connection, user["id"], workspace_id)
+        scope = task_scope(connection, user["id"], workspace_id, write=True)
         existing = get_task_or_404(connection, task_id, scope, for_update=True)
         start = changes.get("start_date", existing["start_date"])
         end = changes.get("end_date", existing["end_date"])
@@ -185,27 +255,60 @@ def update_task(task_id: int, data: TaskUpdate, user: CurrentUser, workspace_id:
                 changes["board_status"] = "done"
             elif existing["board_status"] == "done":
                 changes["board_status"] = "todo"
+        new_status = changes.get("board_status", existing["board_status"])
+        status_changed = new_status != existing["board_status"]
+        if status_changed or changes.get("completed", existing["completed"]) != existing["completed"]:
+            require_status_permission(scope)
+        if status_changed and workspace_id is not None:
+            changes["board_position"] = next_board_position(connection, workspace_id, new_status)
         fields = ", ".join(f"{column} = ?" for column in changes)
-        condition, scope_id = scope
         row = connection.execute(
-            f"UPDATE tasks SET {fields}, updated_at = ? WHERE id = ? AND {condition} RETURNING *",
-            (*changes.values(), utc_timestamp(), task_id, scope_id),
+            f"UPDATE tasks SET {fields}, updated_at = ? WHERE id = ? AND {scope.condition} RETURNING *",
+            (*changes.values(), utc_timestamp(), task_id, scope.key),
         ).fetchone()
         return dict(row)
 
 
 @app.delete("/api/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(task_id: int, user: CurrentUser, workspace_id: int | None = None):
-    with database() as connection:
-        condition, scope_id = task_scope(connection, user["id"], workspace_id)
-        deleted = connection.execute(f"DELETE FROM tasks WHERE id = ? AND {condition}", (task_id, scope_id))
+def delete_task(task_id: RecordID, user: CurrentUser, workspace_id: OptionalWorkspaceID = None):
+    with database(write=workspace_id is not None) as connection:
+        scope = task_scope(connection, user["id"], workspace_id, write=True)
+        deleted = connection.execute(f"DELETE FROM tasks WHERE id = ? AND {scope.condition}", (task_id, scope.key))
         if not deleted.rowcount:
             raise HTTPException(status_code=404, detail="Tarea no encontrada")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.patch("/api/tasks/{task_id}/position", response_model=list[Task])
+def move_task(task_id: RecordID, workspace_id: WorkspaceID, data: TaskPosition, user: CurrentUser):
+    with database(write=True) as connection:
+        scope = task_scope(connection, user["id"], workspace_id, write=True)
+        task = get_task_or_404(connection, task_id, scope, for_update=True)
+        if data.board_status != task["board_status"]:
+            require_status_permission(scope)
+        cards = connection.execute("""
+            SELECT id, board_position FROM tasks
+            WHERE workspace_id = ? AND board_status = ? AND id <> ?
+            ORDER BY board_position, id DESC
+        """, (workspace_id, data.board_status, task_id)).fetchall()
+        destination = len(cards)
+        if data.before_task_id is not None:
+            destination = next((index for index, card in enumerate(cards) if card["id"] == data.before_task_id), -1)
+            if destination < 0:
+                raise HTTPException(409, "La posición elegida ya no está disponible. Actualiza el tablero.")
+        for index, card in enumerate(cards):
+            position = index + int(index >= destination) + 1
+            if position != card["board_position"]:
+                connection.execute("UPDATE tasks SET board_position = ? WHERE id = ?", (position, card["id"]))
+        connection.execute("""
+            UPDATE tasks SET board_status = ?, completed = ?, board_position = ?, updated_at = ?
+            WHERE id = ? AND workspace_id = ?
+        """, (data.board_status, data.board_status == "done", destination + 1, utc_timestamp(), task_id, workspace_id))
+        return read_tasks(connection, scope, True)
+
+
 @app.get("/api/tasks/{task_id}/comments")
-def list_comments(task_id: int, workspace_id: int, user: CurrentUser):
+def list_comments(task_id: RecordID, workspace_id: WorkspaceID, user: CurrentUser):
     with database() as connection:
         get_task_or_404(connection, task_id, task_scope(connection, user["id"], workspace_id))
         comments = connection.execute("""
@@ -217,7 +320,7 @@ def list_comments(task_id: int, workspace_id: int, user: CurrentUser):
 
 
 @app.post("/api/tasks/{task_id}/comments", status_code=201)
-def create_comment(task_id: int, workspace_id: int, data: CommentCreate, user: CurrentUser):
+def create_comment(task_id: RecordID, workspace_id: WorkspaceID, data: CommentCreate, user: CurrentUser):
     with database(write=True) as connection:
         get_task_or_404(connection, task_id, task_scope(connection, user["id"], workspace_id), for_update=True)
         comment = connection.execute("""
@@ -225,3 +328,60 @@ def create_comment(task_id: int, workspace_id: int, data: CommentCreate, user: C
             RETURNING id, body, created_at
         """, (task_id, user["id"], data.body, utc_timestamp())).fetchone()
         return {**dict(comment), "author_email": user["email"]}
+
+
+@app.get("/api/tasks/{task_id}/attachments")
+def list_attachments(task_id: RecordID, workspace_id: WorkspaceID, user: CurrentUser):
+    with database() as connection:
+        get_task_or_404(connection, task_id, task_scope(connection, user["id"], workspace_id))
+        attachments = connection.execute("""
+            SELECT a.id, a.file_name, a.size_bytes, a.created_at, u.email AS uploader_email
+            FROM task_attachments a JOIN users u ON u.id = a.uploaded_by
+            WHERE a.task_id = ? ORDER BY a.id DESC
+        """, (task_id,)).fetchall()
+        return [dict(attachment) for attachment in attachments]
+
+
+def store_attachment(task_id: int, workspace_id: int, user: dict, file_name: str, content: bytes):
+    with database(write=True) as connection:
+        get_task_or_404(connection, task_id, task_scope(connection, user["id"], workspace_id), for_update=True)
+        attachment = connection.execute("""
+            INSERT INTO task_attachments (task_id, uploaded_by, file_name, size_bytes, content, created_at)
+            VALUES (?, ?, ?, ?, ?, ?) RETURNING id, file_name, size_bytes, created_at
+        """, (task_id, user["id"], file_name, len(content), content, utc_timestamp())).fetchone()
+        return {**dict(attachment), "uploader_email": user["email"]}
+
+
+@app.post("/api/tasks/{task_id}/attachments", status_code=201)
+async def upload_attachment(
+    task_id: RecordID, workspace_id: WorkspaceID, user: CurrentUser,
+    request: Request, file_name: Annotated[str, Query(min_length=1, max_length=255)],
+):
+    file_name = "".join(char for char in file_name if char.isprintable()).strip()
+    if file_name in {"", ".", ".."} or "/" in file_name or "\\" in file_name:
+        raise HTTPException(422, "El nombre del archivo no es válido.")
+    await run_in_threadpool(enforce_rate_limits, (ATTACHMENT_UPLOADS, user["id"]))
+    content = await request.body()
+    return await run_in_threadpool(store_attachment, task_id, workspace_id, user, file_name, content)
+
+
+@app.get("/api/tasks/{task_id}/attachments/{attachment_id}")
+def download_attachment(
+    task_id: RecordID, attachment_id: RecordID, workspace_id: WorkspaceID,
+    user: CurrentUser,
+):
+    with database() as connection:
+        get_task_or_404(connection, task_id, task_scope(connection, user["id"], workspace_id))
+        attachment = connection.execute("""
+            SELECT file_name, content FROM task_attachments WHERE task_id = ? AND id = ?
+        """, (task_id, attachment_id)).fetchone()
+        if attachment is None:
+            raise HTTPException(404, "Archivo no encontrado.")
+        return Response(
+            content=attachment["content"], media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(attachment["file_name"], safe=""),
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-store",
+            },
+        )

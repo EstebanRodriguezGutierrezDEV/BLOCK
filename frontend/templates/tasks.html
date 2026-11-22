@@ -23,7 +23,7 @@
 
   <main id="main-content" class="workspace-main">
     <header class="workspace-header">
-      <div><p class="eyebrow">TU ESPACIO PERSONAL</p><h1>Un plan para lo que viene<span class="brand-dot">.</span></h1><p>Organiza tus pendientes y deja espacio para lo importante.</p></div>
+      <div><p class="eyebrow">TU CALENDARIO</p><h1>Un plan para lo que viene<span class="brand-dot">.</span></h1><p>Consulta tus tareas personales y las de tus espacios compartidos.</p></div>
       <div class="workspace-account">
         <p class="account-email">{{ user.email }}</p>
         <a class="secondary-button" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
@@ -49,7 +49,7 @@
     </section>
 
     <section class="tasks-section" aria-labelledby="tasks-title">
-      <div class="tasks-header"><div><p class="eyebrow">PASO A PASO</p><h2 id="tasks-title">Tareas del mes</h2><button type="button" id="clear-day" class="text-button" hidden>Ver todo el mes</button></div><label class="search-wrap"><span class="sr-only">Buscar tareas por título o descripción</span><span aria-hidden="true">⌕</span><input type="search" id="search" placeholder="Buscar en este mes…" autocomplete="off" /></label></div>
+      <div class="tasks-header"><div><p class="eyebrow">PASO A PASO</p><h2 id="tasks-title">Tareas del mes</h2><button type="button" id="clear-day" class="text-button" hidden>Ver todo el mes</button></div><label class="search-wrap"><span class="sr-only">Buscar tareas por título, descripción o espacio</span><span aria-hidden="true">⌕</span><input type="search" id="search" placeholder="Buscar en este mes…" autocomplete="off" /></label></div>
       <div class="filters" role="group" aria-label="Filtrar tareas"><button type="button" class="filter active" data-filter="all" aria-pressed="true">Todas</button><button type="button" class="filter" data-filter="pending" aria-pressed="false">Por hacer</button><button type="button" class="filter" data-filter="completed" aria-pressed="false">Completadas</button></div>
       <ul id="task-list" class="task-list" aria-live="polite" aria-busy="true"></ul>
       <div id="empty-state" class="empty-state" hidden><span class="empty-icon" aria-hidden="true">✓</span><h3 id="empty-title">Un nuevo espacio para tus planes</h3><p id="empty-subtitle">Crea una tarea y dale una fecha para empezar.</p><button type="button" class="secondary-button" id="empty-add">Crear una tarea</button></div>

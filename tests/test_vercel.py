@@ -7,6 +7,8 @@ from psycopg import sql
 from psycopg.conninfo import make_conninfo
 import pytest
 
+from backend import accounts, rate_limits
+from backend.attachment_policy import MAX_ATTACHMENT_BYTES
 from conftest import PASSWORD
 from frontend.app import app as web
 from frontend import embedded_api
@@ -36,15 +38,18 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     app = import_module("app").app
     base_url = "http://tareas.example.com"
     headers = {"X-Forwarded-Proto": "https", "Origin": "https://tareas.example.com"}
+    monkeypatch.setattr(rate_limits, "time", lambda: 1200)
     owner = app.test_client()
     guest = app.test_client()
     credentials = {"email": "propietario@example.com", "password": PASSWORD}
     task = {"title": "Plan de producción", "start_date": "2026-11-20", "end_date": "2026-11-25"}
 
     assert owner.get("/", base_url=base_url).status_code == 200
+    assert owner.get("/", base_url=base_url, headers=headers).headers["Strict-Transport-Security"] == "max-age=31536000"
     assert owner.get("/favicon.ico", base_url=base_url).status_code == 200
     assert owner.post("/registro", base_url=base_url, headers=headers, data=credentials).status_code == 503
-    monkeypatch.setenv("DATABASE_URL", make_conninfo(test_url, options=f"-c search_path={namespace}"))
+    test_database = make_conninfo(test_url, options=f"-c search_path={namespace}")
+    monkeypatch.setenv("DATABASE_URL", test_database)
 
     for client, email in ((owner, credentials["email"]), (guest, "invitado@example.com")):
         account = {**credentials, "email": email}
@@ -60,6 +65,15 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     scope = f"?workspace_id={space.json['id']}"
     card = owner.post("/api/tasks" + scope, base_url=base_url, headers=headers, json=task)
     assert card.status_code == 201
+    with psycopg.connect(test_database) as legacy_schema:
+        legacy_schema.execute("ALTER TABLE tasks DROP COLUMN board_position")
+        legacy_schema.execute("ALTER TABLE workspace_members DROP COLUMN can_change_status")
+        legacy_schema.execute("DROP TABLE task_attachments")
+    monkeypatch.setattr(embedded_api, "_initialized", False)
+    upgraded = owner.get("/api/tasks" + scope, base_url=base_url, headers=headers)
+    assert upgraded.json == [{**card.json, "board_position": 0}]
+    calendar = "/api/calendar/tasks"
+    assert guest.get(calendar, base_url=base_url, headers=headers).json["tasks"] == []
     comments = f"/api/tasks/{card.json['id']}/comments" + scope
     assert guest.get(comments, base_url=base_url, headers=headers).status_code == 404
     invite = owner.post(
@@ -70,8 +84,51 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     message_id = inbox.json[0]["id"]
     accepted = guest.post(f"/api/messages/{message_id}/accept", base_url=base_url, headers=headers, json={})
     assert accepted.status_code == 200
+    guest_calendar = guest.get(calendar, base_url=base_url, headers=headers)
+    assert guest_calendar.json == {
+        "tasks": [{**upgraded.json[0], "workspace_id": space.json["id"], "workspace_name": "Equipo"}],
+        "next_before_id": None,
+    }
     assert guest.post(comments, base_url=base_url, headers=headers, json={"body": "Revisado"}).status_code == 201
     assert owner.get(comments, base_url=base_url, headers=headers).json[0]["body"] == "Revisado"
+
+    attachments = f"/api/tasks/{card.json['id']}/attachments"
+    upload = attachments + scope + "&file_name=Notas%20de%20revisi%C3%B3n.xyz"
+    binary_headers = {**headers, "Content-Type": "application/octet-stream"}
+    payload = bytes(range(256)) * (MAX_ATTACHMENT_BYTES // 256)
+    assert guest.post(upload, base_url=base_url, headers=binary_headers, data=payload + b"X").status_code == 413
+    stored = guest.post(upload, base_url=base_url, headers=binary_headers, data=payload)
+    assert stored.status_code == 201
+    assert owner.get(attachments + scope, base_url=base_url, headers=headers).json == [stored.json]
+    download_path = f"{attachments}/{stored.json['id']}" + scope
+    download = owner.get(download_path, base_url=base_url, headers=headers)
+    assert download.data == payload
+    assert download.headers["Content-Type"] == "application/octet-stream"
+    assert download.headers["Content-Disposition"].endswith("Notas%20de%20revisi%C3%B3n.xyz")
+    assert download.headers["X-Content-Type-Options"] == "nosniff"
+    assert download.headers["Cache-Control"] == "no-store"
+    assert app.test_client().get(download_path, base_url=base_url, headers=headers).status_code == 401
+
+    position = f"/api/tasks/{card.json['id']}/position" + scope
+    move = {"board_status": "done"}
+    assert guest.patch(position, base_url=base_url, headers=headers, json=move).status_code == 403
+    members = owner.get(space_path, base_url=base_url, headers=headers).json["members"]
+    member_id = next(member["id"] for member in members if member["email"] == "invitado@example.com")
+    permission_path = f"{space_path}/members/{member_id}"
+    permission = {"can_change_status": True}
+    assert owner.patch(permission_path, base_url=base_url, headers=headers, json=permission).json == permission
+    assert guest.patch(position, base_url=base_url, headers=headers, json=move).json[0]["completed"] is True
+    assert owner.get("/api/tasks" + scope, base_url=base_url, headers=headers).json[0]["board_status"] == "done"
+
+    friend_request = owner.post("/api/friends", base_url=base_url, headers=headers, json={"email": "invitado@example.com"})
+    assert friend_request.status_code == 201
+    friendship = friend_request.json["friendship_id"]
+    chat = f"/api/chats/{friendship}"
+    assert guest.get(chat, base_url=base_url, headers=headers).status_code == 404
+    assert guest.post(f"/api/friends/{friendship}/accept", base_url=base_url, headers=headers, json={}).status_code == 204
+    sent = guest.post(chat, base_url=base_url, headers=headers, json={"body": "Hola desde el tablero"})
+    assert sent.status_code == 201
+    assert owner.get(chat + "?after_id=0", base_url=base_url, headers=headers).json["messages"] == [sent.json]
 
     assert owner.post("/api/tasks", base_url=base_url, headers={}, json=task).status_code == 403
     created = owner.post("/api/tasks", base_url=base_url, headers=headers, json=task)
@@ -88,3 +145,15 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     assert owner.delete(path, base_url=base_url, headers=headers).status_code == 204
     assert owner.post("/cerrar-sesion", base_url=base_url, headers=headers).status_code == 303
     assert owner.get("/api/tasks", base_url=base_url, headers=headers).status_code == 401
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setattr(accounts, "LOGIN_IP", accounts.LOGIN_IP._replace(attempts=1))
+    wrong_password = {**credentials, "password": "Incorrecta"}
+    trusted = {**headers, "X-Vercel-Forwarded-For": "192.0.2.10"}
+    assert owner.post("/iniciar-sesion", base_url=base_url, headers=trusted, data=wrong_password).status_code == 401
+    changed_forwarding = {**trusted, "X-Forwarded-For": "192.0.2.20"}
+    blocked = owner.post("/iniciar-sesion", base_url=base_url, headers=changed_forwarding, data=wrong_password)
+    assert blocked.status_code == 429
+    assert blocked.headers["Retry-After"] == "300"
+    another_ip = {**trusted, "X-Vercel-Forwarded-For": "192.0.2.30"}
+    assert owner.post("/iniciar-sesion", base_url=base_url, headers=another_ip, data=wrong_password).status_code == 401
