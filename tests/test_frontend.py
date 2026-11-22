@@ -1,3 +1,6 @@
+from struct import unpack
+from xml.etree.ElementTree import fromstring
+
 from frontend import app as frontend
 from conftest import PASSWORD
 
@@ -23,9 +26,10 @@ def test_welcome_and_task_screens(api, monkeypatch):
         assert "Strict-Transport-Security" not in welcome.headers
         html = welcome.get_data(as_text=True)
         assert "Tu block de tareas" in html
-        assert "organizarte." in html
-        assert 'href="/tareas"' in html
-        assert 'href="/registro"' in html
+        assert "Organiza tus tareas con un" in html
+        assert 'class="primary-button welcome-cta" href="/registro">Crear mi cuenta' in html
+        assert 'href="#ejemplo"' in html
+        assert "Una semana de ejemplo" in html
         assert 'href="/iniciar-sesion"' in html
         assert "app.js" not in html
 
@@ -47,6 +51,8 @@ def test_welcome_and_task_screens(api, monkeypatch):
         assert signed_in.location == "/tareas"
         assert "HttpOnly" in signed_in.headers["Set-Cookie"]
         assert "SameSite=Lax" in signed_in.headers["Set-Cookie"]
+        signed_in_home = client.get("/").get_data(as_text=True)
+        assert 'class="primary-button welcome-cta" href="/tareas">Entrar a mi block' in signed_in_home
 
         tasks = client.get("/tareas")
         assert tasks.status_code == 200
@@ -88,3 +94,62 @@ def test_welcome_and_task_screens(api, monkeypatch):
         })
         assert stale_form.location == "/cuenta"
         assert client.get("/cuenta").status_code == 200
+
+
+def test_search_metadata_and_sitemap_use_the_public_origin(monkeypatch):
+    monkeypatch.setenv("TODO_PUBLIC_URL", "https://tareas.example.com/")
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "app-original.vercel.app")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("TODO_GOOGLE_SITE_VERIFICATION", "test-verification")
+    site = "https://tareas.example.com"
+    with frontend.app.test_client() as client:
+        landing = client.get("/?utm_source=ejemplo", base_url="https://alias.example.com")
+        html = landing.get_data(as_text=True)
+        assert "X-Robots-Tag" not in landing.headers
+        assert "<title>Organizador de tareas con calendario | Tu block de tareas</title>" in html
+        assert '<meta name="description" content="Organiza tareas personales y compartidas en un calendario.' in html
+        assert f'<link rel="canonical" href="{site}/"' in html
+        assert f'<meta property="og:url" content="{site}/"' in html
+        assert f'<meta property="og:image" content="{site}/static/icons/social-preview.png"' in html
+        assert '<meta name="google-site-verification" content="test-verification"' in html
+        assert '"@type": "WebSite"' in html
+        assert "alias.example.com" not in html and "app-original.vercel.app" not in html
+
+        robots = client.get("/robots.txt")
+        assert robots.mimetype == "text/plain"
+        assert robots.get_data(as_text=True) == f"User-agent: *\nAllow: /\n\nSitemap: {site}/sitemap.xml\n"
+        sitemap = client.get("/sitemap.xml")
+        assert sitemap.mimetype == "application/xml"
+        namespace = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        assert [entry.text for entry in fromstring(sitemap.data).findall("s:url/s:loc", namespace)] == [site + "/"]
+        preview_image = client.get("/static/icons/social-preview.png")
+        assert preview_image.mimetype == "image/png"
+        assert "X-Robots-Tag" not in preview_image.headers
+        assert unpack(">II", preview_image.data[16:24]) == (1200, 630)
+
+        for private in ("/tareas", "/espacios/1", "/mensajes", "/cuenta", "/iniciar-sesion", "/registro", "/api/tasks"):
+            response = client.get(private)
+            assert response.headers["X-Robots-Tag"] == "noindex"
+            assert 'rel="canonical"' not in response.get_data(as_text=True)
+
+
+def test_preview_has_noindex_and_uses_the_vercel_production_domain(monkeypatch):
+    monkeypatch.delenv("TODO_PUBLIC_URL", raising=False)
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "app-original.vercel.app")
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("TODO_GOOGLE_SITE_VERIFICATION", "test-verification")
+    with frontend.app.test_client() as client:
+        landing = client.get("/", base_url="https://preview.example.com")
+        assert landing.headers["X-Robots-Tag"] == "noindex"
+        assert '<link rel="canonical" href="https://app-original.vercel.app/"' in landing.get_data(as_text=True)
+        assert 'name="google-site-verification"' not in landing.get_data(as_text=True)
+        assert "Sitemap:" not in client.get("/robots.txt").get_data(as_text=True)
+        assert client.get("/sitemap.xml").status_code == 404
+
+        monkeypatch.setenv("VERCEL_ENV", "production")
+        assert "X-Robots-Tag" not in client.get("/").headers
+        assert "https://app-original.vercel.app/" in client.get("/sitemap.xml").get_data(as_text=True)
+
+        monkeypatch.delenv("VERCEL_PROJECT_PRODUCTION_URL")
+        assert 'rel="canonical"' not in client.get("/", base_url="https://unverified.example.com").get_data(as_text=True)
+        assert client.get("/sitemap.xml").status_code == 404

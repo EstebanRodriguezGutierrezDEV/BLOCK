@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 {% from "navigation.html" import messages_link %}
+{% block title %}{{ seo.title }}{% endblock %}
+{% block metadata %}
+    <meta name="description" content="{{ seo.description }}" />
+    {% if seo.canonical %}
+    <link rel="canonical" href="{{ seo.canonical }}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="{{ seo.name }}" />
+    <meta property="og:locale" content="es_ES" />
+    <meta property="og:title" content="{{ seo.title }}" />
+    <meta property="og:description" content="{{ seo.description }}" />
+    <meta property="og:url" content="{{ seo.canonical }}" />
+    <meta property="og:image" content="{{ seo.image }}" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Tu block de tareas. Un calendario para tus tareas y un tablero para tu equipo." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">{{ seo.website | tojson }}</script>
+    {% endif %}
+    {% if seo.verification %}
+    <meta name="google-site-verification" content="{{ seo.verification }}" />
+    {% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='welcome.js') }}" type="module"></script>
+{% endblock %}
 {% block content %}
+{% set week = [
+  ('Lunes', 'Lun', 12, [('Organizar apuntes', 'Personal', 'Completada', 'completed'), ('Repartir tareas', 'Entrega en equipo', 'Completada', 'completed')]),
+  ('Martes', 'Mar', 13, [('Preparar la presentación', 'Personal', 'Por empezar', 'upcoming'), ('Revisar el borrador', 'Entrega en equipo', 'En curso', 'active'), ('Compartir las ideas iniciales', 'Entrega en equipo', 'Completada', 'completed')]),
+  ('Miércoles', 'Mié', 14, [('Reunión de seguimiento', 'Entrega en equipo', 'Por empezar', 'upcoming'), ('Repasar el tema', 'Personal', 'En curso', 'active')]),
+  ('Jueves', 'Jue', 15, [('Adjuntar los documentos', 'Entrega en equipo', 'Por empezar', 'upcoming')]),
+  ('Viernes', 'Vie', 16, [('Entregar la presentación', 'Entrega en equipo', 'Por empezar', 'upcoming')])
+] %}
 <div class="welcome-page">
   <header class="welcome-header">
     <a href="{{ url_for('index') }}" class="brand"><img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" /><span>Tu block de tareas<span class="brand-dot">.</span></span></a>
@@ -11,34 +44,72 @@
       {{ messages_link('nav-link') }}
       {% else %}
       <a class="nav-link" href="{{ url_for('login') }}">Iniciar sesión</a>
-      <a class="nav-link" href="{{ url_for('register') }}">Registrarse</a>
+      <a class="secondary-button welcome-register" href="{{ url_for('register') }}">Crear cuenta</a>
       {% endif %}
     </nav>
   </header>
   <main id="main-content" class="welcome-main">
     <section class="welcome-copy">
-      <p class="eyebrow">UN POCO DE ORDEN, MUCHA MÁS CALMA</p>
-      <h1>Tu espacio<br />para <span>organizarte.</span></h1>
-      <p class="welcome-description">Saca los pendientes de tu cabeza y dales su lugar. Planea tus días, mira lo que viene y avanza a tu ritmo.</p>
-      <a class="primary-button welcome-cta" href="{{ url_for('tasks') }}">Entrar a mi block</a>
-      <p class="welcome-note">Tus planes, un mes a la vez.</p>
+      <h1>Organiza tus tareas con un <span>calendario</span></h1>
+      <p class="welcome-description">Abre tu calendario y ve qué toca hoy. Pon fecha a tus pendientes y, cuando trabajes en equipo, usa un tablero para repartir tareas, seguir avances y compartir archivos.</p>
+      <div class="welcome-actions">
+        {% if user %}
+        <a class="primary-button welcome-cta" href="{{ url_for('tasks') }}">Entrar a mi block</a>
+        {% else %}
+        <a class="primary-button welcome-cta" href="{{ url_for('register') }}">Crear mi cuenta</a>
+        {% endif %}
+        <a class="welcome-example-link" href="#ejemplo">Ver un ejemplo</a>
+      </div>
+      {% if not user %}<p class="welcome-registration-hint">Registro con correo y contraseña.</p>{% endif %}
     </section>
-    <div class="notebook" aria-hidden="true">
-      <div class="notebook-binding"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="notebook-top"><span>MI ESPACIO</span><span class="notebook-check">✓</span></div>
-      <h2>Hacer sitio<br />a lo importante.</h2>
-      <div class="notebook-task"><span class="mock-checkbox checked">✓</span><span>Empezar con una idea</span></div>
-      <div class="notebook-task"><span class="mock-checkbox checked">✓</span><span>Ponerle una fecha</span></div>
-      <div class="notebook-task"><span class="mock-checkbox"></span><span>Dar el siguiente paso</span></div>
-      <div class="notebook-bottom"><span>Sin prisa. Con un plan.</span><span>✦</span></div>
-      <div class="floating-note">Menos pendientes.<br /><strong>Más espacio para ti.</strong></div>
-    </div>
-    <section class="welcome-features" aria-label="Qué puedes hacer en tu block">
-      <article><span class="feature-icon" aria-hidden="true">☷</span><h2>Todo en su lugar</h2><p>Una lista clara para tus ideas y pendientes.</p></article>
-      <article><span class="feature-icon" aria-hidden="true">▦</span><h2>Tu tiempo, a la vista</h2><p>Un calendario con el inicio y el fin de cada tarea.</p></article>
-      <article><span class="feature-icon" aria-hidden="true">✓</span><h2>Cada paso cuenta</h2><p>Marca tus avances y mira todo lo que has hecho.</p></article>
+    <section id="ejemplo" class="welcome-demo" aria-labelledby="welcome-demo-title" tabindex="-1">
+      <div class="welcome-demo-header">
+        <h2 id="welcome-demo-title">Una semana de ejemplo</h2>
+        <p>Selecciona un día para ver sus tareas.</p>
+      </div>
+      <div class="welcome-demo-days" role="group" aria-label="Días de ejemplo">
+        {% for day, short_day, date, tasks in week %}
+        <button type="button" data-demo-day="{{ date }}" aria-controls="demo-tasks-{{ date }}" aria-pressed="{{ 'true' if date == 13 else 'false' }}" aria-label="{{ day }} {{ date }}, {{ tasks | length }} {{ 'tarea' if tasks | length == 1 else 'tareas' }}">
+          <span>{{ short_day }}</span><strong>{{ date }}</strong>
+          <span class="welcome-demo-count" aria-hidden="true">{{ tasks | length }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <div class="welcome-demo-results" aria-live="polite">
+        {% for day, short_day, date, tasks in week %}
+        <div id="demo-tasks-{{ date }}" data-demo-tasks="{{ date }}"{% if date != 13 %} hidden{% endif %}>
+          <h3>{{ day }} {{ date }}</h3>
+          <ul class="welcome-demo-tasks">
+            {% for title, source, status, color in tasks %}
+            <li class="status-{{ color }}">
+              <div><strong>{{ title }}</strong><span class="welcome-demo-source">{{ source }}</span></div>
+              <span class="status-badge">{{ status }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+      </div>
     </section>
+    <section class="welcome-features" aria-label="Funciones de Tu block de tareas">
+      <article><span class="feature-icon" aria-hidden="true">▦</span><h2>Calendario de tareas</h2><p>Planea una semana de estudio, una entrega o tus recados. Cada tarea aparece desde su fecha de inicio hasta la de fin, junto con las que coincidan esos días.</p></article>
+      <article><span class="feature-icon" aria-hidden="true">☷</span><h2>Tableros compartidos</h2><p>Crea un tablero para tu proyecto e invita a tus compañeros. Cada tarjeta tiene su estado y puedes consultar el avance también desde el calendario.</p></article>
+      <article><span class="feature-icon" aria-hidden="true">✓</span><h2>Comentarios y archivos</h2><p>Deja las indicaciones y los documentos junto a la tarea. Si necesitas hablar en privado, usa Mensajes para conversar y compartir archivos.</p></article>
+    </section>
+    <section class="welcome-workflow" aria-labelledby="welcome-workflow-title">
+      <h2 id="welcome-workflow-title">Cómo empezar</h2>
+      <ol>
+        <li><strong>Crea tu cuenta.</strong> Regístrate con tu correo y una contraseña para abrir tu calendario personal.</li>
+        <li><strong>Pon fecha a tu primera tarea.</strong> Escribe qué necesitas hacer y elige cuándo empieza y cuándo termina.</li>
+        <li><strong>Colabora cuando lo necesites.</strong> Crea un tablero e invita a tus compañeros con el correo de su cuenta. Pueden aceptar desde Mensajes.</li>
+      </ol>
+    </section>
+    {% if not user %}
+    <section class="welcome-start" aria-labelledby="welcome-start-title">
+      <h2 id="welcome-start-title">Pon fecha a tu primer pendiente</h2>
+      <a class="primary-button" href="{{ url_for('register') }}">Crear cuenta</a>
+    </section>
+    {% endif %}
   </main>
-  <footer class="welcome-footer">Un lugar para tus planes. Y para empezar de nuevo cuando lo necesites.</footer>
 </div>
 {% endblock %}

@@ -56,7 +56,7 @@ def calendar_page(api, tmp_path, monkeypatch):
 def test_calendar_workflow(calendar_page):
     page, api, base_url, _, auth = calendar_page
     page.goto(base_url)
-    playwright.expect(page.locator("h1")).to_contain_text("organizarte.")
+    playwright.expect(page.get_by_role("heading", level=1)).to_have_text("Organiza tus tareas con un calendario")
     page.get_by_role("link", name="Entrar a mi block").click()
     playwright.expect(page.locator("#loading-status")).to_be_hidden()
     playwright.expect(page.locator(".month-button")).to_have_count(12)
@@ -239,9 +239,22 @@ def test_date_validation_and_api_error_recovery(calendar_page):
 def test_browser_registration_and_logout(calendar_page):
     page, _, base_url, _, _ = calendar_page
     page.context.clear_cookies()
-    page.goto(f"{base_url}/tareas")
-    playwright.expect(page.get_by_role("heading", name="Iniciar sesión")).to_be_visible()
-    page.get_by_role("link", name="Registrarse").click()
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(base_url)
+    primary = page.get_by_role("link", name="Crear mi cuenta", exact=True)
+    playwright.expect(primary).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth === window.innerWidth")
+    page.get_by_role("link", name="Ver un ejemplo").click()
+    demo = page.get_by_role("region", name="Una semana de ejemplo")
+    playwright.expect(demo.get_by_text("Revisar el borrador")).to_be_visible()
+    thursday = demo.get_by_role("button", name="Jueves 15, 1 tarea")
+    thursday.focus()
+    page.keyboard.press("Enter")
+    playwright.expect(thursday).to_have_attribute("aria-pressed", "true")
+    playwright.expect(demo.get_by_text("Adjuntar los documentos")).to_be_visible()
+    playwright.expect(demo.get_by_text("Revisar el borrador")).to_be_hidden()
+    primary.click()
+    playwright.expect(page).to_have_url(f"{base_url}/registro")
     email = "nueva@example.com"
     page.get_by_label("Correo electrónico").fill(email)
     page.get_by_label("Contraseña", exact=True).fill(PASSWORD)

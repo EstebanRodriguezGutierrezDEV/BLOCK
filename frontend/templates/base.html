@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#202342" />
-    <meta name="description" content="Tu espacio para organizarte. Planifica tus tareas y encuentra tiempo para lo importante." />
     <title>{% block title %}Tu block de tareas{% endblock %}</title>
+    {% block metadata %}{% endblock %}
     <link rel="icon" href="{{ url_for('favicon') }}" sizes="16x16 32x32 48x48" />
     <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/block-192.png') }}" />
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}" />

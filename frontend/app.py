@@ -12,9 +12,11 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from backend.attachment_policy import ATTACHMENT_LIMIT_MESSAGE, MAX_ATTACHMENT_BYTES, PREVIEW_IMAGE_TYPES
 from backend.request_security import MAX_JSON_BYTES, MAX_RECORD_ID, SESSION_TOKEN_PATTERN
+from .seo import PUBLIC_ENDPOINTS, homepage_metadata, is_preview, pages as seo_pages
 
 PUBLIC_DIR = Path(__file__).resolve().parents[1] / "public"
 app = Flask(__name__, static_folder=PUBLIC_DIR / "static", static_url_path="/static")
+app.register_blueprint(seo_pages)
 app.config["MAX_CONTENT_LENGTH"] = MAX_JSON_BYTES
 SESSION_COOKIE = "todo_session"
 SESSION_VIEW_COOKIE = "todo_session_view"
@@ -106,6 +108,8 @@ def require_same_origin_for_writes():
 def secure_response(response):
     if request.endpoint != "static":
         response.headers["Cache-Control"] = "no-store"
+    if is_preview() or request.endpoint not in PUBLIC_ENDPOINTS or response.status_code >= 400:
+        response.headers["X-Robots-Tag"] = "noindex"
     response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -142,11 +146,12 @@ def auth_form(mode, **kwargs):
 
 @app.get("/")
 def index():
+    seo = homepage_metadata()
     if token := session_token():
         status, user, _ = json_api("/api/auth/me", token=token)
         if status == 200:
-            return render_session_page("index.html", user, token, url_for("index"))
-    return render_template("index.html")
+            return render_session_page("index.html", user, token, url_for("index"), seo=seo)
+    return render_template("index.html", seo=seo)
 
 
 @app.get("/favicon.ico")

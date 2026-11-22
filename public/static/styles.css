@@ -46,29 +46,44 @@ html.session-hidden { visibility: hidden; }
 .auth-link a { color: var(--primary-dark); text-decoration: underline; text-underline-offset: 2px; }
 .auth-card .auth-success { background: #e4f2ec; color: #305e4a; padding: 12px; border-radius: 8px; }
 .auth-card .notice { color: #a33a50; }
-.welcome-main { display: grid; grid-template-columns: 1.12fr 1fr; gap: 72px; padding: 90px 0 50px; align-items: center; }
-.welcome-copy h1 { font-size: clamp(2.9rem, 5vw, 4.5rem); line-height: 1.1; letter-spacing: -3px; margin: 22px 0; }
+.welcome-register { padding: 7px 12px; color: var(--primary-dark); border-color: #d9d0f2; }
+.welcome-main { display: grid; grid-template-columns: minmax(0, 1.04fr) minmax(0, 1fr); gap: clamp(32px, 5vw, 64px); padding: clamp(36px, 6vw, 78px) 0 50px; align-items: center; }
+.welcome-copy h1 { font-size: clamp(2.35rem, 5vw, 4.5rem); line-height: 1.08; letter-spacing: -.045em; margin: 0 0 20px; text-wrap: balance; }
 .welcome-copy h1 span { color: var(--primary); }
-.welcome-description { color: var(--muted); line-height: 1.85; max-width: 425px; font-size: 1.0625rem; }
-.welcome-cta { margin-top: 21px; padding: 15px 25px; }
-.welcome-note { color: #85899b; font-size: .875rem; margin-top: 20px; }
-.notebook { position: relative; transform: rotate(3deg); background: white; padding: 35px 35px 20px 45px; border: 1px solid #e3e0ef; border-radius: 8px 23px 23px 8px; box-shadow: 14px 16px 0 #eae6f7, 0 20px 60px #32255d0e; margin: 0 20px 0 0; }
-.notebook-binding { position: absolute; top: 32px; bottom: 32px; left: -11px; display: flex; flex-direction: column; justify-content: space-between; }
-.notebook-binding i { width: 23px; height: 9px; background: #c4bedb; border: 2px solid #aaa1c9; border-radius: 5px; }
-.notebook-top { display: flex; align-items: center; justify-content: space-between; color: #88829b; font-size: .75rem; letter-spacing: 2px; }
-.notebook-check { background: #f1edfc; color: var(--primary); border-radius: 50%; width: 30px; height: 30px; display: grid; place-items: center; font-size: 1.1rem; }
-.notebook h2 { font-size: 2rem; line-height: 1.25; font-weight: 650; letter-spacing: -1px; margin: 28px 0; }
-.notebook-task { display: flex; align-items: center; gap: 13px; padding: 18px 0; border-bottom: 1px solid #eceaf3; color: #68687d; font-size: .875rem; }
-.mock-checkbox { width: 22px; height: 22px; border: 1.5px solid #cfc9e1; border-radius: 6px; display: grid; place-items: center; }
-.mock-checkbox.checked { background: #ede8ff; color: var(--primary); border-color: #ede8ff; }
-.notebook-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; color: #9b94b0; font-size: .8rem; }
-.notebook-bottom > :last-child { font-size: 1.7rem; color: #b5a6e5; }
-.floating-note { position: absolute; right: -30px; bottom: -25px; padding: 17px 22px; background: #e1f2ee; color: #3b6d61; border-radius: 3px; transform: rotate(-9deg); line-height: 1.7; font-size: .875rem; box-shadow: 0 5px 14px #213d3410; }
-.welcome-features { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-top: 28px; border-top: 1px solid var(--line); padding-top: 42px; }
+.welcome-description { color: #585d73; line-height: 1.7; max-width: 460px; font-size: 1.0625rem; margin: 0; }
+.welcome-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-top: 25px; }
+.welcome-cta { padding: 14px 22px; }
+.welcome-example-link { color: var(--primary-dark); font-size: .9rem; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.welcome-registration-hint { color: #61657c; font-size: .85rem; margin: 12px 0 0; }
+.welcome-demo { min-width: 0; scroll-margin-top: 20px; padding: clamp(15px, 2.5vw, 26px); background: white; border: 1px solid #e3dcf4; border-radius: 18px; box-shadow: 0 13px 0 #eee9fa, 0 20px 45px #32255d0d; }
+.welcome-demo-header h2 { margin: 0 0 5px; font-size: clamp(1.15rem, 2.2vw, 1.55rem); letter-spacing: -.035em; }
+.welcome-demo-header p { color: #5f647a; font-size: .88rem; margin: 0; }
+.welcome-demo-days { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 18px 0 15px; }
+.welcome-demo-days button { min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: #faf9fe; color: #5e6179; padding: 7px 2px; display: grid; justify-items: center; gap: 3px; font-size: .72rem; }
+.welcome-demo-days button strong { color: var(--ink); font-size: 1.15rem; }
+.welcome-demo-days button:hover { border-color: #b9ace3; }
+.welcome-demo-days button[aria-pressed="true"] { border-color: #ad9be1; background: #eee8fb; color: var(--primary-dark); }
+.welcome-demo-count { display: grid; place-items: center; min-width: 17px; min-height: 17px; border-radius: 9px; background: #eee9f6; color: #534b73; }
+.welcome-demo-days button[aria-pressed="true"] .welcome-demo-count { background: var(--primary-dark); color: white; }
+.welcome-demo-results { min-height: 218px; }
+.welcome-demo-results h3 { font-size: .95rem; margin: 0 0 9px; }
+.welcome-demo-tasks { display: grid; gap: 7px; padding: 0; margin: 0; list-style: none; }
+.welcome-demo-tasks li { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; padding: 9px 10px; border: 1px solid var(--line); border-left: 3px solid var(--status-border); border-radius: 8px; }
+.welcome-demo-tasks strong { display: block; font-size: .84rem; overflow-wrap: anywhere; }
+.welcome-demo-source { display: block; color: #61657c; font-size: .75rem; margin-top: 2px; }
+.welcome-features { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.welcome-features article { padding: clamp(16px, 2.6vw, 24px); border: 1px solid var(--line); border-radius: 12px; background: white; }
 .feature-icon { color: var(--primary); font-size: 1.4rem; }
 .welcome-features h2 { font-size: 1rem; margin: 12px 0 8px; }
 .welcome-features p { color: var(--muted); font-size: .875rem; line-height: 1.65; margin: 0; }
-.welcome-footer { padding: 25px 0; text-align: center; font-size: .8rem; color: #818598; }
+.welcome-workflow { grid-column: 1 / -1; padding: clamp(18px, 4vw, 36px); border: 1px solid var(--line); border-radius: 16px; background: white; }
+.welcome-workflow h2 { font-size: clamp(1.25rem, 3vw, 1.65rem); margin: 0 0 16px; letter-spacing: -.035em; }
+.welcome-workflow ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 28px; margin: 0; padding: 0 0 0 1.25rem; }
+.welcome-workflow li { padding-left: 3px; color: #5f647a; line-height: 1.65; font-size: .9rem; }
+.welcome-workflow li::marker { color: var(--primary-dark); font-weight: 700; }
+.welcome-workflow strong { color: var(--ink); }
+.welcome-start { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: clamp(18px, 4vw, 36px); border-radius: 16px; background: #ede7fa; }
+.welcome-start h2 { margin: 0; font-size: clamp(1.2rem, 3vw, 1.65rem); letter-spacing: -.035em; }
 
 .calendar-period { padding: 14px 16px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; background: white; }
 .calendar-period-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
@@ -194,30 +209,25 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 }
 @media (max-width: 800px) {
   .welcome-page { padding: 0 26px; }
-  .welcome-main { gap: 65px; padding-top: 55px; grid-template-columns: 1fr; }
+  .welcome-main { gap: 28px; padding-top: 38px; grid-template-columns: minmax(0, 1fr); }
   .welcome-copy { max-width: 550px; }
-  .notebook { width: min(380px, 90%); margin: 0 auto 25px; }
-  .welcome-features { gap: 24px; margin-top: 0; }
   .workspace-main { padding: 30px 22px 0; }
   .workspace-header { flex-direction: row; align-items: center; }
   .workspace-header h1 { font-size: 1.7rem; }
 }
 @media (max-width: 560px) {
   .welcome-header { height: 85px; }
-  .welcome-header .welcome-nav { flex: 0 0 auto; flex-direction: column; gap: 0; align-items: flex-end; }
+  .welcome-header .welcome-nav { flex: 0 0 auto; flex-direction: column; gap: 4px; align-items: flex-end; }
   .welcome-header .brand { font-size: .95rem; gap: 9px; }
   .welcome-header .brand-icon { width: 32px; height: 32px; }
   .nav-link { font-size: .8125rem; padding: 5px; }
+  .welcome-register { font-size: .8125rem; padding: 4px 8px; }
   .welcome-copy h1 { letter-spacing: -1.7px; }
-  .notebook { width: calc(100% - 32px); padding: 28px 24px 18px 36px; transform: rotate(2deg); }
-  .floating-note { right: -6px; bottom: -18px; font-size: .8125rem; }
-  .notebook { width: calc(100% - 32px); padding: 28px 24px 18px 36px; transform: rotate(2deg); }
-  .floating-note { right: -6px; bottom: -18px; font-size: .8125rem; }
-  .welcome-features { grid-template-columns: 1fr; gap: 25px; }
+  .welcome-features { grid-template-columns: 1fr; }
   .welcome-features article { display: grid; grid-template-columns: 30px 1fr; gap: 5px 12px; }
   .welcome-features h2 { margin: 0; }
   .welcome-features p { grid-column: 2; }
-  .welcome-footer { line-height: 1.7; }
+  .welcome-workflow ol { grid-template-columns: 1fr; }
   .workspace-main { padding: 26px 16px 0; }
   .workspace-header { flex-direction: column; align-items: flex-start; gap: 20px; }
   .workspace-header h1 { font-size: 1.8rem; }
