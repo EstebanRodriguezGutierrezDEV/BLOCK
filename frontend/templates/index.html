@@ -6,6 +6,7 @@
     <nav class="welcome-nav" aria-label="Cuenta">
       {% if user %}
       <a class="nav-link" href="{{ url_for('tasks') }}">Mis tareas</a>
+      <a class="nav-link" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
       {% else %}
       <a class="nav-link" href="{{ url_for('login') }}">Iniciar sesión</a>
       <a class="nav-link" href="{{ url_for('register') }}">Registrarse</a>

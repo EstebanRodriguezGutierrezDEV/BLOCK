@@ -1,5 +1,3 @@
-"""Registro y sesiones revocables."""
-
 from hashlib import sha256
 import secrets
 from time import time
@@ -55,7 +53,6 @@ CurrentUser = Annotated[dict, Depends(current_user)]
 def register(data: Registration):
     password_hash = generate_password_hash(data.password.get_secret_value())
     with database() as connection:
-        # Una solicitud antigua sin contraseña puede completar el nuevo registro.
         created = connection.execute("""
             INSERT INTO users (email, password_hash) VALUES (?, ?)
             ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash

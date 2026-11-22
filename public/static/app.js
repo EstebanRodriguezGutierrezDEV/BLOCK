@@ -1,4 +1,4 @@
-"use strict";
+import { request } from "./http.js";
 
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const $ = (selector) => document.querySelector(selector);
@@ -15,7 +15,6 @@ const confirmDelete = $("#confirm-delete");
 const cancelDelete = $("#cancel-delete");
 let taskToDelete = null;
 
-// Fechas locales
 function calendarDate(year, month, day = 1) {
   const value = new Date(0);
   value.setHours(12, 0, 0, 0);
@@ -65,38 +64,6 @@ function matchesFilters(task) {
 function sortedTasks(tasks) {
   return [...tasks].sort((a, b) => Number(a.completed) - Number(b.completed)
     || a.end_date.localeCompare(b.end_date) || a.start_date.localeCompare(b.start_date) || a.id - b.id);
-}
-
-async function request(path, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  try {
-    let response;
-    try {
-      response = await fetch(path, {
-        ...options, signal: controller.signal,
-        headers: options.body ? { "Content-Type": "application/json" } : {},
-      });
-    } catch (error) {
-      throw new Error(error.name === "AbortError"
-        ? "La conexión está tardando demasiado. Vuelve a intentarlo."
-        : "No se pudo conectar con tus tareas. Comprueba que el servidor de tareas esté en marcha.");
-    }
-    if (response.status === 401) {
-      window.location.replace("/iniciar-sesion");
-      throw new Error("Inicia sesión para acceder a tus tareas.");
-    }
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      const detail = typeof error.detail === "string" ? error.detail
-        : Array.isArray(error.detail) ? error.detail.map((item) => item.msg.replace(/^Value error, /, "")).join(". ")
-        : "No se pudo completar la operación. Vuelve a intentarlo.";
-      throw new Error(detail);
-    }
-    return response.status === 204 ? null : await response.json();
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 function clearError(target = $("#notice")) {

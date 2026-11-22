@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from flask import Flask, abort, redirect, render_template, request, send_from_directory, url_for
 
@@ -15,7 +15,6 @@ TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}")
 
 
 def api_request(path, method="GET", data=None, token=None):
-    """Llama a FastAPI sin entregar el token de sesión a JavaScript."""
     if app.config.get("TODO_EMBEDDED_API"):
         from .embedded_api import request_api
 
@@ -57,7 +56,6 @@ def session_token():
 def require_same_origin_for_writes():
     if request.method not in {"POST", "PATCH", "DELETE"}:
         return
-    # Los formularios y las peticiones del navegador incluyen Origin al escribir.
     origin = os.environ.get("TODO_PUBLIC_URL", request.host_url).rstrip("/")
     if request.headers.get("Origin") != origin:
         abort(403)
@@ -75,7 +73,7 @@ def error_message(payload):
 
 
 def auth_form(mode, **kwargs):
-    return render_template("auth.html", mode=mode, **kwargs)
+    return render_template("auth.html", mode=mode, invitation=request.args.get("invitacion"), **kwargs)
 
 
 @app.get("/")
@@ -101,7 +99,7 @@ def register():
     password = request.form.get("password", "")
     status, payload = json_api("/api/auth/register", {"email": email, "password": password})
     if status == 201:
-        return redirect(url_for("login", cuenta_creada="1"), code=303)
+        return redirect(url_for("login", cuenta_creada="1", invitacion=request.args.get("invitacion")), code=303)
     return auth_form("register", email=email, error=error_message(payload)), status
 
 
@@ -116,7 +114,8 @@ def login():
 
     if token := session_token():
         json_api("/api/auth/logout", {}, token=token)
-    response = redirect(url_for("tasks"), code=303)
+    destination = "invitation" if request.args.get("invitacion") else "tasks"
+    response = redirect(url_for(destination), code=303)
     secure = (
         app.config.get("TODO_EMBEDDED_API", False)
         or request.is_secure
@@ -140,8 +139,7 @@ def logout():
     return response
 
 
-@app.get("/tareas")
-def tasks():
+def protected_page(template, **context):
     token = session_token()
     if not token:
         return redirect(url_for("login"))
@@ -152,22 +150,74 @@ def tasks():
         return response
     if status != 200:
         return render_template("service_error.html", error=error_message(payload)), status
-    return render_template("tasks.html", user=payload)
+    return render_template(template, user=payload, **context)
 
 
-@app.route("/api/tasks", methods=["GET", "POST"])
-@app.route("/api/tasks/<int:task_id>", methods=["GET", "PATCH", "DELETE"])
-def task_api(task_id=None):
+@app.get("/tareas")
+def tasks():
+    return protected_page("tasks.html")
+
+
+@app.get("/espacios")
+@app.get("/espacios/<int:workspace_id>")
+def workspaces(workspace_id=None):
+    return protected_page("workspaces.html", workspace_id=workspace_id)
+
+
+@app.get("/invitacion")
+def invitation():
+    user = None
+    if token := session_token():
+        status, payload = json_api("/api/auth/me", token=token)
+        if status == 200:
+            user = payload
+    return render_template("invitation.html", user=user)
+
+
+def proxy_api(path):
     token = session_token()
     if not token:
         return {"detail": "Inicia sesión para acceder a tus tareas."}, 401
     if request.method in {"POST", "PATCH"} and not request.is_json:
         return {"detail": "La petición debe utilizar JSON."}, 415
-    path = "/api/tasks" if task_id is None else f"/api/tasks/{task_id}"
     method = "GET" if request.method == "HEAD" else request.method
     body = request.get_data() if method in {"POST", "PATCH"} else None
     status, content = api_request(path, method, body, token)
     return app.response_class(content, status=status, mimetype="application/json")
+
+
+def task_workspace_query():
+    workspace_id = request.args.get("workspace_id")
+    return "?" + urlencode({"workspace_id": workspace_id}) if workspace_id is not None else ""
+
+
+@app.route("/api/tasks", methods=["GET", "POST"])
+@app.route("/api/tasks/<int:task_id>", methods=["GET", "PATCH", "DELETE"])
+def task_api(task_id=None):
+    path = "/api/tasks" if task_id is None else f"/api/tasks/{task_id}"
+    return proxy_api(path + task_workspace_query())
+
+
+@app.route("/api/tasks/<int:task_id>/comments", methods=["GET", "POST"])
+def comments_api(task_id):
+    return proxy_api(f"/api/tasks/{task_id}/comments" + task_workspace_query())
+
+
+@app.route("/api/workspaces", methods=["GET", "POST"])
+@app.get("/api/workspaces/<int:workspace_id>")
+def workspace_api(workspace_id=None):
+    path = "/api/workspaces" if workspace_id is None else f"/api/workspaces/{workspace_id}"
+    return proxy_api(path)
+
+
+@app.post("/api/workspaces/<int:workspace_id>/invitations")
+def invite_api(workspace_id):
+    return proxy_api(f"/api/workspaces/{workspace_id}/invitations")
+
+
+@app.post("/api/invitations/accept")
+def accept_invitation_api():
+    return proxy_api("/api/invitations/accept")
 
 
 if __name__ == "__main__":

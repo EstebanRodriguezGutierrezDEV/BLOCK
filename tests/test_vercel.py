@@ -1,5 +1,3 @@
-"""Verifica el entrypoint de producción con PostgreSQL en un esquema temporal."""
-
 from importlib import import_module
 import os
 from uuid import uuid4
@@ -56,6 +54,25 @@ def exercise_deployment(monkeypatch, test_url, namespace):
         assert "Secure" in login.headers["Set-Cookie"]
         assert "HttpOnly" in login.headers["Set-Cookie"]
 
+    space = owner.post("/api/workspaces", base_url=base_url, headers=headers, json={"name": "Equipo"})
+    assert space.status_code == 201
+    space_path = f"/api/workspaces/{space.json['id']}"
+    scope = f"?workspace_id={space.json['id']}"
+    card = owner.post("/api/tasks" + scope, base_url=base_url, headers=headers, json=task)
+    assert card.status_code == 201
+    comments = f"/api/tasks/{card.json['id']}/comments" + scope
+    assert guest.get(comments, base_url=base_url, headers=headers).status_code == 404
+    invite = owner.post(
+        space_path + "/invitations", base_url=base_url, headers=headers, json={"email": "invitado@example.com"},
+    )
+    assert invite.status_code == 201
+    accepted = guest.post(
+        "/api/invitations/accept", base_url=base_url, headers=headers, json={"token": invite.json["token"]},
+    )
+    assert accepted.status_code == 200
+    assert guest.post(comments, base_url=base_url, headers=headers, json={"body": "Revisado"}).status_code == 201
+    assert owner.get(comments, base_url=base_url, headers=headers).json[0]["body"] == "Revisado"
+
     assert owner.post("/api/tasks", base_url=base_url, headers={}, json=task).status_code == 403
     created = owner.post("/api/tasks", base_url=base_url, headers=headers, json=task)
     assert created.status_code == 201
@@ -65,7 +82,6 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     update = owner.patch(path, base_url=base_url, headers=headers, json={"completed": True})
     assert update.status_code == 200 and update.json["completed"] is True
 
-    # Simula un arranque nuevo que vuelve a abrir la misma base.
     monkeypatch.setattr(embedded_api, "_initialized", False)
     assert owner.get("/api/tasks", base_url=base_url, headers=headers).json == [update.json]
     assert guest.delete(path, base_url=base_url, headers=headers).status_code == 404

@@ -1,5 +1,3 @@
-"""Entrypoint WSGI para Vercel."""
-
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from frontend.app import app

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Invitación · Tu block de tareas{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='invitation.js') }}" type="module"></script>
+{% endblock %}
+{% block content %}
+<main id="main-content" class="auth-card invitation-card">
+  <h1>Invitación a un espacio</h1>
+  <p id="invitation-error" class="notice" role="alert" hidden></p>
+  <div id="invitation-actions" hidden>
+    {% if user %}
+    <p>Vas a aceptar la invitación como <strong>{{ user.email }}</strong>.</p>
+    <button id="accept-invitation" type="button" class="primary-button">Aceptar invitación</button>
+    <p class="auth-link"><a href="{{ url_for('login', invitacion=1) }}">Usar otra cuenta</a></p>
+    {% else %}
+    <p>Inicia sesión o regístrate con el correo al que enviaron el enlace.</p>
+    <a class="primary-button" href="{{ url_for('login', invitacion=1) }}">Iniciar sesión</a>
+    <a class="secondary-button" href="{{ url_for('register', invitacion=1) }}">Registrarse</a>
+    {% endif %}
+  </div>
+  <p class="auth-link"><a href="{{ url_for('index') }}">Volver a inicio</a></p>
+</main>
+{% endblock %}

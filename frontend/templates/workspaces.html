@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Espacios compartidos · Tu block de tareas{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='workspaces.js') }}" type="module"></script>
+{% endblock %}
+{% block content %}
+<div id="shared-app" class="shared-app" data-workspace-id="{{ workspace_id or '' }}">
+  <aside class="shared-sidebar" aria-label="Tus espacios">
+    <a href="{{ url_for('index') }}" class="brand">
+      <img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" />
+      <span>Tu block de tareas<span class="brand-dot">.</span></span>
+    </a>
+    <a class="shared-personal-link" href="{{ url_for('tasks') }}">Mi calendario</a>
+    <div class="shared-nav-heading">
+      <h2>Espacios compartidos</h2>
+      <button id="create-workspace-button" class="icon-button" type="button" aria-label="Crear espacio">+</button>
+    </div>
+    <nav id="workspace-links" aria-label="Tableros"></nav>
+    <div class="shared-account">
+      <span>{{ user.email }}</span>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="text-button">Cerrar sesión</button>
+      </form>
+    </div>
+  </aside>
+
+  <main id="main-content" class="shared-main">
+    <header class="shared-header">
+      <div>
+        <h1 id="workspace-name">Espacios compartidos</h1>
+        <ul id="workspace-members" class="shared-members" aria-label="Miembros del espacio"></ul>
+      </div>
+      <div id="board-actions" class="shared-header-actions" hidden>
+        <button id="refresh-board" class="secondary-button" type="button">Actualizar</button>
+        <button id="invite-button" class="secondary-button" type="button" hidden>Invitar</button>
+        <button id="create-card" class="primary-button" type="button">Nueva tarea</button>
+      </div>
+    </header>
+    <p id="board-error" class="notice" role="alert" hidden></p>
+    <p id="board-loading" class="loading-status" role="status">Cargando espacios…</p>
+    <section id="no-spaces" class="empty-state" hidden>
+      <h2>Tu primer espacio compartido</h2>
+      <p>Crea un tablero e invita por correo a quienes trabajarán contigo.</p>
+      <button id="empty-create-workspace" type="button" class="primary-button">Crear espacio</button>
+    </section>
+    <div id="board" class="kanban" aria-label="Tablero de tareas" hidden>
+      {% for key, title in [('todo', 'Por hacer'), ('doing', 'En curso'), ('done', 'Hecho')] %}
+      <section class="kanban-column" data-column="{{ key }}" aria-labelledby="column-title-{{ key }}">
+        <div class="kanban-column-header">
+          <h2 id="column-title-{{ key }}">{{ title }}</h2>
+          <span class="kanban-count" aria-label="Número de tareas">0</span>
+          <button type="button" class="icon-button column-add" aria-label="Añadir tarea a {{ title }}">+</button>
+        </div>
+        <ul class="kanban-list" aria-labelledby="column-title-{{ key }}"></ul>
+        <p class="column-empty">Sin tareas</p>
+      </section>
+      {% endfor %}
+    </div>
+  </main>
+</div>
+
+<dialog id="workspace-dialog" class="task-dialog" aria-labelledby="workspace-dialog-title">
+  <form id="workspace-form">
+    <div class="dialog-top"><h2 id="workspace-dialog-title">Crear espacio</h2><button type="button" class="close-dialog" data-close aria-label="Cerrar">×</button></div>
+    <label class="field-label" for="new-workspace-name">Nombre del espacio</label>
+    <input id="new-workspace-name" name="name" maxlength="80" placeholder="Ej. Proyecto de clase" required autofocus />
+    <p class="notice dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions"><button type="button" class="secondary-button" data-close>Cancelar</button><button class="primary-button" type="submit">Crear espacio</button></div>
+  </form>
+</dialog>
+
+<dialog id="invite-dialog" class="task-dialog" aria-labelledby="invite-dialog-title">
+  <form id="invite-form">
+    <div class="dialog-top"><h2 id="invite-dialog-title">Invitar al espacio</h2><button type="button" class="close-dialog" data-close aria-label="Cerrar">×</button></div>
+    <label class="field-label" for="invite-email">Correo electrónico</label>
+    <input id="invite-email" name="email" type="email" maxlength="254" placeholder="nombre@ejemplo.com" required autofocus />
+    <p class="notice dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions"><button type="button" class="secondary-button" data-close>Cerrar</button><button class="primary-button" type="submit">Generar enlace</button></div>
+  </form>
+  <div id="invitation-result" hidden>
+    <label class="field-label" for="invite-link">Enlace de invitación</label>
+    <div class="invite-copy-row">
+      <input id="invite-link" type="url" readonly />
+      <button id="copy-invite" type="button" class="secondary-button">Copiar enlace</button>
+    </div>
+    <p class="field-hint">Envía el enlace a ese correo. Caduca en siete días y solo puede usarse una vez.</p>
+    <p id="invite-copy-status" role="status"></p>
+  </div>
+</dialog>
+
+<dialog id="card-dialog" class="task-dialog card-dialog" aria-labelledby="card-dialog-title">
+  <form id="card-form">
+    <div class="dialog-top"><h2 id="card-dialog-title">Nueva tarea</h2><button type="button" class="close-dialog" data-close aria-label="Cerrar">×</button></div>
+    <label class="field-label" for="card-title">Título</label>
+    <input id="card-title" name="title" maxlength="200" required autofocus />
+    <label class="field-label" for="card-description">Descripción</label>
+    <textarea id="card-description" name="description" maxlength="1000" rows="3"></textarea>
+    <div class="date-fields">
+      <div><label class="field-label" for="card-start">Fecha de inicio</label><input id="card-start" name="start_date" type="date" max="9999-12-31" required /></div>
+      <div><label class="field-label" for="card-end">Fecha de fin</label><input id="card-end" name="end_date" type="date" max="9999-12-31" required /></div>
+    </div>
+    <label class="field-label" for="card-status">Estado</label>
+    <div class="select-wrap"><select id="card-status" name="board_status"><option value="todo">Por hacer</option><option value="doing">En curso</option><option value="done">Hecho</option></select></div>
+    <p class="notice dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button id="delete-card" type="button" class="text-button danger" hidden>Eliminar tarea</button>
+      <button type="submit" class="primary-button">Guardar tarea</button>
+    </div>
+  </form>
+  <section id="card-discussion" class="card-discussion" aria-labelledby="discussion-title" hidden>
+    <h3 id="discussion-title">Comentarios</h3>
+    <button id="reload-comments" class="text-button" type="button">Actualizar comentarios</button>
+    <ul id="comment-list" class="comment-list" aria-live="polite"></ul>
+    <p id="no-comments" class="field-hint" hidden>Aún no hay comentarios.</p>
+    <form id="comment-form">
+      <label class="field-label" for="comment-body">Escribe un comentario</label>
+      <textarea id="comment-body" name="body" maxlength="2000" rows="2" required></textarea>
+      <p class="notice dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="submit" class="secondary-button">Publicar comentario</button></div>
+    </form>
+  </section>
+</dialog>
+
+<dialog id="delete-card-dialog" class="task-dialog" aria-labelledby="delete-card-title">
+  <form id="delete-card-form">
+    <div class="dialog-top"><h2 id="delete-card-title">¿Deseas eliminar la tarea?</h2></div>
+    <p>Se eliminará <strong id="delete-card-name"></strong> y sus comentarios del espacio.</p>
+    <p class="notice dialog-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="secondary-button" data-close autofocus>Cancelar</button>
+      <button type="submit" class="primary-button danger-button">Eliminar definitivamente</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

@@ -1,5 +1,3 @@
-"""Llama a FastAPI dentro de la función de Vercel, sin conexiones HTTP internas."""
-
 import asyncio
 import os
 from threading import Lock
@@ -39,6 +37,5 @@ def request_api(path, method, data, token):
         ensure_schema()
         response = asyncio.run(call_api(path, method, data, token))
     except OperationalError:
-        # No incluir mensajes del controlador, que pueden revelar datos de la conexión.
         return 503, b'{"detail":"No se pudo conectar con la base de datos."}'
     return response.status_code, response.content

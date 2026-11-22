@@ -6,6 +6,11 @@ from backend import db, main
 PASSWORD = "Una contraseña de prueba 8"
 
 
+@pytest.fixture(autouse=True)
+def isolate_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
