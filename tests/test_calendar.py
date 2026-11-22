@@ -176,8 +176,12 @@ def test_calendar_includes_multiple_shared_and_personal_tasks(calendar_page, mon
     ).status_code == 201
     invite = api.get("/api/messages", headers=auth).json()[0]["id"]
     assert api.post(f"/api/messages/{invite}/accept", headers=auth).status_code == 200
+    member_id = api.get("/api/auth/me", headers=auth).json()["id"]
+    assert api.patch(
+        f"/api/workspaces/{space}/members/{member_id}", headers=owner, json={"can_change_status": True},
+    ).status_code == 200
 
-    page.clock.set_fixed_time("2026-11-20T12:00:00+01:00")
+    page.clock.set_fixed_time("2026-11-30T12:00:00+01:00")
     page.goto(f"{base_url}/tareas")
     playwright.expect(page.locator("#total-count")).to_have_text("4")
     november = page.locator('[data-date="2026-11-30"]')
@@ -185,15 +189,28 @@ def test_calendar_includes_multiple_shared_and_personal_tasks(calendar_page, mon
         ["Tarea personal", "Otra personal", "Entrega conjunta", "Revisión compartida"],
     )
     playwright.expect(november.locator(".calendar-event-shared")).to_have_count(2)
+    delivery = november.get_by_text("Entrega conjunta", exact=True)
+    playwright.expect(delivery).to_have_class("calendar-event status-upcoming calendar-event-shared")
+    playwright.expect(november.get_by_text("Tarea personal", exact=True)).to_have_class("calendar-event status-active")
+    playwright.expect(november.get_by_text("Revisión compartida", exact=True)).to_have_class(
+        "calendar-event status-completed calendar-event-shared",
+    )
     page.locator("#next-month").click()
     page.locator('[data-date="2026-12-02"]').click()
     playwright.expect(page.locator("#task-list .task-item")).to_have_count(4)
     playwright.expect(page.locator("#task-list .task-checkbox")).to_have_count(2)
+    card = page.locator("#task-list .task-item").filter(has_text="Entrega conjunta")
+    playwright.expect(card.locator(".status-badge")).to_have_text("Por empezar")
     playwright.expect(page.locator('[data-date="2026-12-03"] .calendar-event')).to_have_count(0)
     page.locator("#search").fill("Equipo de pruebas")
     playwright.expect(page.locator("#task-list .task-item")).to_have_count(2)
     page.get_by_role("link", name="Equipo de pruebas", exact=True).first.click()
     playwright.expect(page).to_have_url(f"{base_url}/espacios/{space}")
+    page.get_by_label("Mover Entrega conjunta").select_option("doing")
+    playwright.expect(page.locator("[data-column=doing]")).to_contain_text("Entrega conjunta")
+    page.get_by_role("link", name="Mi calendario").click()
+    playwright.expect(delivery).to_have_class("calendar-event status-active calendar-event-shared")
+    playwright.expect(card.locator(".status-badge")).to_have_text("En curso")
 
 
 def test_date_validation_and_api_error_recovery(calendar_page):

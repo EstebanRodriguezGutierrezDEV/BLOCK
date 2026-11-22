@@ -1,6 +1,13 @@
 import { request } from "./http.js";
 
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const statuses = {
+  upcoming: { key: "upcoming", label: "Por empezar" },
+  active: { key: "active", label: "En curso" },
+  overdue: { key: "overdue", label: "Vencida" },
+  completed: { key: "completed", label: "Completada" },
+};
+const boardStatuses = { todo: statuses.upcoming, doing: statuses.active, done: statuses.completed };
 const $ = (selector) => document.querySelector(selector);
 const now = new Date();
 const state = {
@@ -49,10 +56,11 @@ function tasksForMonth(year = state.year, month = state.month) {
 }
 
 function taskStatus(task, today = dateKey(new Date())) {
-  if (task.completed) return { key: "completed", label: "Completada" };
-  if (task.end_date < today) return { key: "overdue", label: "Vencida" };
-  if (task.start_date > today) return { key: "upcoming", label: "Por empezar" };
-  return { key: "active", label: "En curso" };
+  if (task.workspace_id != null) return boardStatuses[task.board_status];
+  if (task.completed) return statuses.completed;
+  if (task.end_date < today) return statuses.overdue;
+  if (task.start_date > today) return statuses.upcoming;
+  return statuses.active;
 }
 
 function matchesFilters(task) {
