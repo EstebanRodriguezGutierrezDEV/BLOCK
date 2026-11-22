@@ -489,7 +489,4 @@ setInterval(() => {
   }
 }, 60000);
 
-window.addEventListener("pageshow", (event) => {
-  if (event.persisted) window.location.reload();
-});
 loadTasks();

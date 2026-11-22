@@ -66,9 +66,9 @@ def exercise_deployment(monkeypatch, test_url, namespace):
         space_path + "/invitations", base_url=base_url, headers=headers, json={"email": "invitado@example.com"},
     )
     assert invite.status_code == 201
-    accepted = guest.post(
-        "/api/invitations/accept", base_url=base_url, headers=headers, json={"token": invite.json["token"]},
-    )
+    inbox = guest.get("/api/messages", base_url=base_url, headers=headers)
+    message_id = inbox.json[0]["id"]
+    accepted = guest.post(f"/api/messages/{message_id}/accept", base_url=base_url, headers=headers, json={})
     assert accepted.status_code == 200
     assert guest.post(comments, base_url=base_url, headers=headers, json={"body": "Revisado"}).status_code == 201
     assert owner.get(comments, base_url=base_url, headers=headers).json[0]["body"] == "Revisado"

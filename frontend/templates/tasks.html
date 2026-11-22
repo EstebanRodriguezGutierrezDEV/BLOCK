@@ -27,6 +27,7 @@
       <div class="workspace-account">
         <p class="account-email">{{ user.email }}</p>
         <a class="secondary-button" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
+        <a class="secondary-button" href="{{ url_for('messages') }}">Mensajes</a>
         <form method="post" action="{{ url_for('logout') }}"><button class="text-button" type="submit">Cerrar sesión</button></form>
         <button class="primary-button" type="button" id="new-task-button"><span aria-hidden="true">＋</span> Nueva tarea</button>
       </div>

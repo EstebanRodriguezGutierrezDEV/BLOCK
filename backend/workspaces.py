@@ -1,15 +1,17 @@
 import secrets
 from time import time
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, EmailStr, Field, StringConstraints
+from fastapi import APIRouter, HTTPException, Path
+from pydantic import BaseModel, EmailStr, StringConstraints
 
-from .accounts import CurrentUser, token_hash
+from .accounts import CurrentUser
 from .db import database
+from .mail import send_workspace_notice
 
 router = APIRouter(prefix="/api")
 INVITATION_LIFETIME = 7 * 24 * 60 * 60
+INVITATION_RESEND_DELAY = 60
 
 
 class WorkspaceCreate(BaseModel):
@@ -18,10 +20,6 @@ class WorkspaceCreate(BaseModel):
 
 class InvitationCreate(BaseModel):
     email: EmailStr
-
-
-class InvitationAccept(BaseModel):
-    token: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
 
 
 def require_member(connection, workspace_id: int, user_id: int) -> dict:
@@ -74,39 +72,69 @@ def get_workspace(workspace_id: int, user: CurrentUser):
 @router.post("/workspaces/{workspace_id}/invitations", status_code=201)
 def invite_to_workspace(workspace_id: int, data: InvitationCreate, user: CurrentUser):
     email = data.email.lower()
-    token = secrets.token_urlsafe(32)
+    invitation_id = secrets.token_hex(32)
     expires_at = int(time()) + INVITATION_LIFETIME
     with database(write=True) as connection:
         workspace = require_member(connection, workspace_id, user["id"])
         if workspace["owner_id"] != user["id"]:
             raise HTTPException(403, "Solo el propietario puede invitar a otras personas.")
+        recipient = connection.execute(
+            "SELECT id FROM users WHERE email = ? AND password_hash IS NOT NULL", (email,)
+        ).fetchone()
+        if recipient is None:
+            raise HTTPException(404, "No hay una cuenta registrada con ese correo.")
         member = connection.execute("""
-            SELECT 1 FROM workspace_members m JOIN users u ON u.id = m.user_id
-            WHERE m.workspace_id = ? AND u.email = ?
-        """, (workspace_id, email)).fetchone()
+            SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?
+        """, (workspace_id, recipient["id"])).fetchone()
         if member:
             raise HTTPException(409, "Ese correo ya pertenece al espacio.")
-        connection.execute("""
-            INSERT INTO workspace_invitations (workspace_id, email, token_hash, expires_at) VALUES (?, ?, ?, ?)
+        created = connection.execute("""
+            INSERT INTO workspace_invitations (workspace_id, email, token_hash, expires_at, recipient_id)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT (workspace_id, email) DO UPDATE SET
-                token_hash = excluded.token_hash, expires_at = excluded.expires_at
-        """, (workspace_id, email, token_hash(token), expires_at))
-    return {"token": token, "expires_at": expires_at}
+                token_hash = excluded.token_hash, expires_at = excluded.expires_at, recipient_id = excluded.recipient_id
+            WHERE workspace_invitations.recipient_id IS NULL OR workspace_invitations.expires_at <= ?
+            RETURNING token_hash
+        """, (workspace_id, email, invitation_id, expires_at, recipient["id"], expires_at - INVITATION_RESEND_DELAY)).fetchone()
+        if created is None:
+            raise HTTPException(409, "Ya enviaste una invitación a este correo. Espera un minuto para reenviarla.")
+
+    delivery = send_workspace_notice(email, workspace["name"], user["email"])
+    return {"email_delivery": delivery}
 
 
-@router.post("/invitations/accept")
-def accept_invitation(data: InvitationAccept, user: CurrentUser):
+@router.get("/messages")
+def list_messages(user: CurrentUser):
+    with database() as connection:
+        messages = connection.execute("""
+            SELECT i.token_hash AS id, w.name AS workspace_name, u.email AS sender_email, i.expires_at
+            FROM workspace_invitations i
+            JOIN workspaces w ON w.id = i.workspace_id
+            JOIN users u ON u.id = w.owner_id
+            WHERE i.recipient_id = ? AND i.expires_at > ?
+            ORDER BY i.expires_at DESC, i.token_hash
+        """, (user["id"], int(time()))).fetchall()
+        return [dict(message) for message in messages]
+
+
+@router.post("/messages/{invitation_id}/{action}")
+def respond_to_invitation(
+    invitation_id: Annotated[str, Path(pattern=r"^[a-f0-9]{64}$")],
+    action: Literal["accept", "reject"],
+    user: CurrentUser,
+):
     with database(write=True) as connection:
         invitation = connection.execute("""
             DELETE FROM workspace_invitations
-            WHERE token_hash = ? AND email = ? AND expires_at > ?
+            WHERE token_hash = ? AND recipient_id = ? AND expires_at > ?
             RETURNING workspace_id
-        """, (token_hash(data.token), user["email"], int(time()))).fetchone()
+        """, (invitation_id, user["id"], int(time()))).fetchone()
         if invitation is None:
-            raise HTTPException(404, "La invitación caducó, ya se usó o pertenece a otro correo.")
+            raise HTTPException(404, "Esta invitación ya no está disponible.")
         workspace_id = invitation["workspace_id"]
-        connection.execute("""
-            INSERT INTO workspace_members (workspace_id, user_id) VALUES (?, ?)
-            ON CONFLICT (workspace_id, user_id) DO NOTHING
-        """, (workspace_id, user["id"]))
-        return {"workspace_id": workspace_id}
+        if action == "accept":
+            connection.execute("""
+                INSERT INTO workspace_members (workspace_id, user_id) VALUES (?, ?)
+                ON CONFLICT (workspace_id, user_id) DO NOTHING
+            """, (workspace_id, user["id"]))
+        return {"workspace_id": workspace_id} if action == "accept" else {"rejected": True}

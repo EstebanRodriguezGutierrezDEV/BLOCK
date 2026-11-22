@@ -194,7 +194,9 @@ def test_browser_registration_and_logout(calendar_page):
 
 
 def test_browser_shared_workspace_invitation_and_discussion(calendar_page):
-    page, _, base_url, _, _ = calendar_page
+    page, api, base_url, _, _ = calendar_page
+    register_and_login(api, "equipo@example.com")
+    register_and_login(api, "otra@example.com")
     page.goto(f"{base_url}/tareas")
     page.get_by_role("link", name="Espacios compartidos").click()
     page.locator("#empty-create-workspace").click()
@@ -208,24 +210,24 @@ def test_browser_shared_workspace_invitation_and_discussion(calendar_page):
 
     page.get_by_role("button", name="Invitar", exact=True).click()
     page.get_by_label("Correo electrónico").fill("equipo@example.com")
-    page.get_by_role("button", name="Generar enlace").click()
-    playwright.expect(page.locator("#invite-link")).to_be_visible()
-    link = page.locator("#invite-link").input_value()
+    page.get_by_role("button", name="Enviar invitación").click()
+    playwright.expect(page.locator("#invitation-result")).to_contain_text("La invitación está en Mensajes")
     page.locator("#invite-form").get_by_role("button", name="Cerrar", exact=True).last.click()
 
     context = page.context.browser.new_context(viewport={"width": 400, "height": 850})
     try:
         guest = context.new_page()
-        guest.goto(link)
-        guest.get_by_role("link", name="Registrarse").click()
-        guest.get_by_label("Correo electrónico").fill("equipo@example.com")
-        guest.get_by_label("Contraseña", exact=True).fill(PASSWORD)
-        guest.get_by_role("button", name="Crear cuenta").click()
+        guest.goto(f"{base_url}/mensajes")
+        playwright.expect(guest).to_have_url(f"{base_url}/iniciar-sesion?volver=mensajes")
+        playwright.expect(guest.get_by_role("heading", name="Iniciar sesión")).to_be_visible()
+        assert guest.get_by_role("button", name="Aceptar", exact=True).count() == 0
         guest.get_by_label("Correo electrónico").fill("equipo@example.com")
         guest.get_by_label("Contraseña", exact=True).fill(PASSWORD)
         guest.get_by_role("button", name="Iniciar sesión").click()
-        guest.get_by_role("button", name="Aceptar invitación").click()
-        playwright.expect(guest.get_by_role("heading", name="Proyecto en común")).to_be_visible()
+        playwright.expect(guest.get_by_role("heading", name="Mensajes")).to_be_visible()
+        guest.get_by_role("button", name="Aceptar", exact=True).click()
+        playwright.expect(guest.get_by_role("heading", name="Proyecto en común", level=1)).to_be_visible()
+        board_url = guest.url
         assert guest.evaluate("document.documentElement.scrollWidth === window.innerWidth")
         guest.get_by_label("Mover Preparar la entrega").select_option("doing")
         playwright.expect(guest.locator("[data-column='doing']")).to_contain_text("Preparar la entrega")
@@ -233,6 +235,29 @@ def test_browser_shared_workspace_invitation_and_discussion(calendar_page):
         guest.get_by_label("Escribe un comentario").fill("He revisado la documentación.")
         guest.get_by_role("button", name="Publicar comentario").click()
         playwright.expect(guest.locator("#comment-list")).to_contain_text("He revisado la documentación.")
+        guest.locator("#card-dialog").get_by_role("button", name="Cerrar", exact=True).click()
+        other_tab = context.new_page()
+        other_tab.goto(f"{base_url}/mensajes")
+        other_tab.get_by_role("button", name="Cerrar sesión").click()
+        playwright.expect(other_tab.get_by_role("heading", name="Iniciar sesión")).to_be_visible()
+        guest.bring_to_front()
+        playwright.expect(guest.get_by_role("heading", name="Iniciar sesión")).to_be_visible()
+        assert guest.get_by_role("button", name="Preparar la entrega").count() == 0
+        assert guest.request.get(f"{base_url}/api/messages").status == 401
+        guest.get_by_label("Correo electrónico").fill("equipo@example.com")
+        guest.get_by_label("Contraseña", exact=True).fill(PASSWORD)
+        guest.get_by_role("button", name="Iniciar sesión").click()
+        playwright.expect(guest).to_have_url(board_url)
+        playwright.expect(guest.get_by_role("heading", name="Proyecto en común")).to_be_visible()
+
+        other_tab.goto(f"{base_url}/iniciar-sesion")
+        other_tab.get_by_label("Correo electrónico").fill("otra@example.com")
+        other_tab.get_by_label("Contraseña", exact=True).fill(PASSWORD)
+        other_tab.get_by_role("button", name="Iniciar sesión").click()
+        playwright.expect(other_tab.locator(".account-email")).to_have_text("otra@example.com")
+        guest.bring_to_front()
+        playwright.expect(guest.get_by_role("heading", name="Espacio no disponible")).to_be_visible()
+        assert guest.get_by_role("button", name="Preparar la entrega").count() == 0
     finally:
         context.close()
 

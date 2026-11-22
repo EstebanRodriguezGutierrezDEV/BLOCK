@@ -1,3 +1,4 @@
+from hashlib import sha256
 from http.client import HTTPConnection, HTTPException, HTTPSConnection
 import json
 import os
@@ -11,6 +12,7 @@ PUBLIC_DIR = Path(__file__).resolve().parents[1] / "public"
 app = Flask(__name__, static_folder=PUBLIC_DIR / "static", static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
 SESSION_COOKIE = "todo_session"
+SESSION_VIEW_COOKIE = "todo_session_view"
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}")
 
 
@@ -52,6 +54,24 @@ def session_token():
     return token if TOKEN_PATTERN.fullmatch(token) else None
 
 
+def secure_cookie():
+    return bool(
+        app.config.get("TODO_EMBEDDED_API")
+        or request.is_secure
+        or os.environ.get("TODO_PUBLIC_URL", "").startswith("https://")
+    )
+
+
+def session_view(token):
+    return sha256(token.encode()).hexdigest()[:32]
+
+
+def clear_session_cookies(response):
+    response.delete_cookie(SESSION_COOKIE, httponly=True, secure=secure_cookie(), samesite="Lax")
+    response.delete_cookie(SESSION_VIEW_COOKIE, secure=secure_cookie(), samesite="Lax")
+    return response
+
+
 @app.before_request
 def require_same_origin_for_writes():
     if request.method not in {"POST", "PATCH", "DELETE"}:
@@ -72,8 +92,17 @@ def error_message(payload):
     return payload.get("detail", "No se pudo completar la operación. Inténtalo de nuevo.")
 
 
+def auth_destination():
+    if request.args.get("volver") == "mensajes" or request.args.get("invitacion") == "1":
+        return {"volver": "mensajes"}
+    if request.args.get("volver") == "espacios":
+        workspace_id = request.args.get("espacio", type=int)
+        return {"volver": "espacios", "espacio": workspace_id if 0 < (workspace_id or 0) < 2**63 else None}
+    return {}
+
+
 def auth_form(mode, **kwargs):
-    return render_template("auth.html", mode=mode, invitation=request.args.get("invitacion"), **kwargs)
+    return render_template("auth.html", mode=mode, destination=auth_destination(), **kwargs)
 
 
 @app.get("/")
@@ -99,7 +128,7 @@ def register():
     password = request.form.get("password", "")
     status, payload = json_api("/api/auth/register", {"email": email, "password": password})
     if status == 201:
-        return redirect(url_for("login", cuenta_creada="1", invitacion=request.args.get("invitacion")), code=303)
+        return redirect(url_for("login", cuenta_creada="1", **auth_destination()), code=303)
     return auth_form("register", email=email, error=error_message(payload)), status
 
 
@@ -114,16 +143,22 @@ def login():
 
     if token := session_token():
         json_api("/api/auth/logout", {}, token=token)
-    destination = "invitation" if request.args.get("invitacion") else "tasks"
-    response = redirect(url_for(destination), code=303)
-    secure = (
-        app.config.get("TODO_EMBEDDED_API", False)
-        or request.is_secure
-        or os.environ.get("TODO_PUBLIC_URL", "").startswith("https://")
-    )
+    destination = auth_destination()
+    if destination.get("volver") == "mensajes":
+        landing = url_for("messages")
+    elif destination.get("volver") == "espacios":
+        landing = url_for("workspaces", workspace_id=destination["espacio"])
+    else:
+        landing = url_for("tasks")
+    response = redirect(landing, code=303)
+    secure = secure_cookie()
     response.set_cookie(
         SESSION_COOKIE, payload["token"], max_age=payload["expires_in"],
         httponly=True, secure=secure, samesite="Lax",
+    )
+    response.set_cookie(
+        SESSION_VIEW_COOKIE, session_view(payload["token"]), max_age=payload["expires_in"],
+        secure=secure, samesite="Lax",
     )
     return response
 
@@ -131,26 +166,39 @@ def login():
 @app.post("/cerrar-sesion")
 def logout():
     if token := session_token():
-        status, payload = json_api("/api/auth/logout", {}, token=token)
+        status, _ = json_api("/api/auth/logout", {}, token=token)
         if status not in {204, 401}:
-            return render_template("service_error.html", error=error_message(payload)), status
-    response = redirect(url_for("login"), code=303)
-    response.delete_cookie(SESSION_COOKIE)
-    return response
+            page = render_template(
+                "service_error.html", title="Sesión cerrada en este navegador",
+                error="El servidor no pudo confirmar la revocación de la sesión.",
+            )
+            return clear_session_cookies(app.make_response((page, status)))
+    return clear_session_cookies(redirect(url_for("login"), code=303))
 
 
-def protected_page(template, **context):
+def protected_page(template, *, sign_in=None, workspace_id=None):
+    sign_in = sign_in or url_for("login")
     token = session_token()
     if not token:
-        return redirect(url_for("login"))
-    status, payload = json_api("/api/auth/me", token=token)
+        return redirect(sign_in)
+
+    status, user = json_api("/api/auth/me", token=token)
+    error = user
+    if status == 200 and workspace_id is not None:
+        if not 0 < workspace_id < 2**63:
+            abort(404)
+        status, error = json_api(f"/api/workspaces/{workspace_id}", token=token)
     if status == 401:
-        response = redirect(url_for("login"))
-        response.delete_cookie(SESSION_COOKIE)
-        return response
+        return clear_session_cookies(redirect(sign_in))
+    if status == 404:
+        return render_template("service_error.html", title="Espacio no disponible", error=error_message(error)), 404
     if status != 200:
-        return render_template("service_error.html", error=error_message(payload)), status
-    return render_template(template, user=payload, **context)
+        return render_template("service_error.html", error=error_message(error)), status
+    view = session_view(token)
+    response = app.make_response(render_template(template, user=user, workspace_id=workspace_id, session_view=view))
+    if request.cookies.get(SESSION_VIEW_COOKIE) != view:
+        response.set_cookie(SESSION_VIEW_COOKIE, view, secure=secure_cookie(), samesite="Lax")
+    return response
 
 
 @app.get("/tareas")
@@ -161,17 +209,18 @@ def tasks():
 @app.get("/espacios")
 @app.get("/espacios/<int:workspace_id>")
 def workspaces(workspace_id=None):
-    return protected_page("workspaces.html", workspace_id=workspace_id)
+    sign_in = url_for("login", volver="espacios", espacio=workspace_id)
+    return protected_page("workspaces.html", sign_in=sign_in, workspace_id=workspace_id)
 
 
 @app.get("/invitacion")
 def invitation():
-    user = None
-    if token := session_token():
-        status, payload = json_api("/api/auth/me", token=token)
-        if status == 200:
-            user = payload
-    return render_template("invitation.html", user=user)
+    return redirect(url_for("messages"))
+
+
+@app.get("/mensajes")
+def messages():
+    return protected_page("messages.html", sign_in=url_for("login", volver="mensajes"))
 
 
 def proxy_api(path):
@@ -215,9 +264,16 @@ def invite_api(workspace_id):
     return proxy_api(f"/api/workspaces/{workspace_id}/invitations")
 
 
-@app.post("/api/invitations/accept")
-def accept_invitation_api():
-    return proxy_api("/api/invitations/accept")
+@app.get("/api/messages")
+def messages_api():
+    return proxy_api("/api/messages")
+
+
+@app.post("/api/messages/<invitation_id>/<action>")
+def respond_message_api(invitation_id, action):
+    if not re.fullmatch(r"[a-f0-9]{64}", invitation_id) or action not in {"accept", "reject"}:
+        abort(404)
+    return proxy_api(f"/api/messages/{invitation_id}/{action}")
 
 
 if __name__ == "__main__":

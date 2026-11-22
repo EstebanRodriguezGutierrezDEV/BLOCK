@@ -1,4 +1,4 @@
-import { request } from "./http.js";
+import { request as apiRequest } from "./http.js";
 
 const $ = (selector) => document.querySelector(selector);
 const columns = [...document.querySelectorAll("[data-column]")];
@@ -17,6 +17,11 @@ let draggedId = null;
 let boardRevision = 0;
 let commentsRequest = 0;
 const movingCards = new Set();
+
+function request(path, options) {
+  const space = workspaceId ? "&espacio=" + workspaceId : "";
+  return apiRequest(path, options, "/iniciar-sesion?volver=espacios" + space);
+}
 
 function message(element, body = "") {
   element.textContent = body;
@@ -268,32 +273,20 @@ handleForm("#workspace-form", async ({ name }) => {
 
 $("#invite-button").addEventListener("click", () => {
   $("#invite-form").reset();
-  $("#invitation-result").hidden = true;
-  $("#invite-link").value = "";
-  message($("#invite-copy-status"));
+  message($("#invitation-result"));
   message(inviteDialog.querySelector(".dialog-error"));
   inviteDialog.showModal();
 });
 
 handleForm("#invite-form", async ({ email }) => {
-  $("#invitation-result").hidden = true;
-  $("#invite-link").value = "";
+  message($("#invitation-result"));
   const invite = await request("/api/workspaces/" + workspaceId + "/invitations", json("POST", { email }));
-  $("#invite-link").value = new URL("/invitacion#" + invite.token, window.location.origin).href;
-  $("#invitation-result").hidden = false;
-  message($("#invite-copy-status"));
-});
-
-$("#copy-invite").addEventListener("click", async () => {
-  const input = $("#invite-link");
-  try {
-    await navigator.clipboard.writeText(input.value);
-    message($("#invite-copy-status"), "Enlace copiado.");
-  } catch {
-    input.focus();
-    input.select();
-    message($("#invite-copy-status"), "Copia el enlace seleccionado.");
-  }
+  const delivery = {
+    sent: "El servidor de correo aceptó el aviso.",
+    not_configured: "El envío por correo aún no está configurado.",
+    failed: "No se pudo enviar el aviso por correo.",
+  };
+  message($("#invitation-result"), "La invitación está en Mensajes. " + delivery[invite.email_delivery]);
 });
 
 function openCard(task = null, status = "todo") {
@@ -383,10 +376,6 @@ handleForm("#delete-card-form", async () => {
   cardDialog.close();
   renderBoard();
   $("#create-card").focus();
-});
-
-window.addEventListener("pageshow", (event) => {
-  if (event.persisted) window.location.reload();
 });
 
 start();

@@ -7,8 +7,9 @@ PASSWORD = "Una contraseña de prueba 8"
 
 
 @pytest.fixture(autouse=True)
-def isolate_database_url(monkeypatch):
+def isolate_external_services(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("TODO_SMTP_HOST", raising=False)
 
 
 @pytest.fixture

@@ -8,4 +8,5 @@ Tu block de tareas es una aplicación web para organizar tus pendientes y verlos
 - Navegar por meses y años y seleccionar un día para ver sus tareas.
 - Distinguir por color las tareas por empezar, en curso, vencidas y completadas.
 - Buscar y filtrar tareas, y consultar el progreso del mes.
-- Crear espacios compartidos, invitar por correo mediante un enlace y colaborar en tableros con comentarios.
+- Crear espacios compartidos, invitar a cuentas registradas y aceptar o rechazar las invitaciones desde Mensajes.
+- Colaborar en tableros con comentarios y recibir avisos por correo cuando el envío esté configurado.

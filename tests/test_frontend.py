@@ -26,6 +26,12 @@ def test_welcome_and_task_screens(api, monkeypatch):
 
         assert client.get("/tareas").location == "/iniciar-sesion"
         assert client.get("/api/tasks").status_code == 401
+        assert client.get("/espacios").location == "/iniciar-sesion?volver=espacios"
+        assert client.get("/espacios/1").location == "/iniciar-sesion?volver=espacios&espacio=1"
+        assert client.get("/mensajes").location == "/iniciar-sesion?volver=mensajes"
+        assert client.get("/invitacion").location == "/mensajes"
+        assert client.get("/api/workspaces").status_code == 401
+        assert client.get("/api/messages").status_code == 401
         login = {"email": "marta@example.com", "password": PASSWORD}
         assert client.post("/iniciar-sesion", data=login, headers=origin).status_code == 401
         registration = client.post("/registro", data=login, headers=origin)
@@ -46,6 +52,23 @@ def test_welcome_and_task_screens(api, monkeypatch):
         assert "app.js" in html
         assert client.get("/static/app.js").status_code == 200
         assert client.get("/static/styles.css").status_code == 200
+        workspace = client.post("/api/workspaces", json={"name": "Mi proyecto"}, headers=origin)
+        assert workspace.status_code == 201
+        path = f"/espacios/{workspace.json['id']}"
+        assert client.get(path).status_code == 200
+        inbox = client.get("/mensajes")
+        assert inbox.status_code == 200
+        assert inbox.headers["Cache-Control"] == "no-store"
+        assert 'name="session-view"' in inbox.get_data(as_text=True)
         assert client.post("/api/tasks", json={}, headers={"Origin": "https://otra.example.com"}).status_code == 403
         assert client.post("/cerrar-sesion", headers=origin).location == "/iniciar-sesion"
         assert client.get("/tareas").location == "/iniciar-sesion"
+        assert client.get(path).status_code == 302
+        assert client.get("/api/messages").status_code == 401
+        assert client.get("/mensajes").status_code == 302
+
+        other = {"email": "otra@example.com", "password": PASSWORD}
+        assert api.post("/api/auth/register", json=other).status_code == 201
+        denied_login = client.get(path).location
+        assert client.post(denied_login, data=other, headers=origin).location == path
+        assert client.get(path).status_code == 404

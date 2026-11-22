@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Mensajes · Tu block de tareas{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='messages.js') }}" type="module"></script>
+{% endblock %}
+{% block content %}
+<div class="shared-app">
+  <aside class="shared-sidebar" aria-label="Navegación de la cuenta">
+    <a href="{{ url_for('index') }}" class="brand">
+      <img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" />
+      <span>Tu block de tareas<span class="brand-dot">.</span></span>
+    </a>
+    <a class="shared-personal-link" href="{{ url_for('tasks') }}">Mi calendario</a>
+    <a class="shared-personal-link" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
+    <a class="workspace-link" href="{{ url_for('messages') }}" aria-current="page">Mensajes</a>
+    <div class="shared-account">
+      <span>{{ user.email }}</span>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="text-button">Cerrar sesión</button>
+      </form>
+    </div>
+  </aside>
+  <main id="main-content" class="shared-main inbox">
+    <header class="shared-header">
+      <div>
+        <h1>Mensajes</h1>
+        <p>Responde a las invitaciones para unirte a espacios compartidos.</p>
+      </div>
+      <button id="refresh-messages" class="secondary-button" type="button">Actualizar</button>
+    </header>
+    <p id="messages-error" class="notice" role="alert" hidden></p>
+    <p id="messages-status" class="loading-status" role="status">Cargando invitaciones…</p>
+    <ul id="messages-list" class="inbox-list" aria-label="Invitaciones pendientes"></ul>
+    <div id="messages-empty" class="empty-state" hidden>
+      <h2>No tienes invitaciones pendientes</h2>
+      <a class="secondary-button" href="{{ url_for('workspaces') }}">Ver mis espacios</a>
+    </div>
+  </main>
+</div>
+{% endblock %}

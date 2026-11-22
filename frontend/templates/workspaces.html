@@ -11,6 +11,7 @@
       <span>Tu block de tareas<span class="brand-dot">.</span></span>
     </a>
     <a class="shared-personal-link" href="{{ url_for('tasks') }}">Mi calendario</a>
+    <a class="shared-personal-link" href="{{ url_for('messages') }}">Mensajes</a>
     <div class="shared-nav-heading">
       <h2>Espacios compartidos</h2>
       <button id="create-workspace-button" class="icon-button" type="button" aria-label="Crear espacio">+</button>
@@ -75,17 +76,10 @@
     <label class="field-label" for="invite-email">Correo electrónico</label>
     <input id="invite-email" name="email" type="email" maxlength="254" placeholder="nombre@ejemplo.com" required autofocus />
     <p class="notice dialog-error" role="alert" hidden></p>
-    <div class="dialog-actions"><button type="button" class="secondary-button" data-close>Cerrar</button><button class="primary-button" type="submit">Generar enlace</button></div>
+    <p class="field-hint">La persona debe tener una cuenta con este correo.</p>
+    <p id="invitation-result" class="invite-status" role="status" hidden></p>
+    <div class="dialog-actions"><button type="button" class="secondary-button" data-close>Cerrar</button><button class="primary-button" type="submit">Enviar invitación</button></div>
   </form>
-  <div id="invitation-result" hidden>
-    <label class="field-label" for="invite-link">Enlace de invitación</label>
-    <div class="invite-copy-row">
-      <input id="invite-link" type="url" readonly />
-      <button id="copy-invite" type="button" class="secondary-button">Copiar enlace</button>
-    </div>
-    <p class="field-hint">Envía el enlace a ese correo. Caduca en siete días y solo puede usarse una vez.</p>
-    <p id="invite-copy-status" role="status"></p>
-  </div>
 </dialog>
 
 <dialog id="card-dialog" class="task-dialog card-dialog" aria-labelledby="card-dialog-title">

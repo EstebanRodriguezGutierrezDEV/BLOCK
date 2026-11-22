@@ -10,6 +10,10 @@
     <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/block-192.png') }}" />
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    {% if session_view %}
+    <meta name="session-view" content="{{ session_view }}" />
+    <script src="{{ url_for('static', filename='session-view.js') }}" type="module"></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
   </head>
   <body>
