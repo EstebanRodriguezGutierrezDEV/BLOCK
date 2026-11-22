@@ -1,40 +1,33 @@
 {% extends "base.html" %}
-{% from "navigation.html" import messages_link %}
+{% from "navigation.html" import account_sidebar %}
 {% block title %}Mi espacio · Tu block de tareas{% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='app.js') }}" type="module"></script>
 {% endblock %}
 {% block content %}
-<div class="workspace">
-  <aside class="sidebar" aria-label="Navegación por meses y años">
-    <a href="{{ url_for('index') }}" class="brand sidebar-brand"><img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" /><span>Tu block<br /> de tareas<span class="brand-dot">.</span></span></a>
-    <a class="sidebar-home" href="{{ url_for('index') }}">⌂ <span>Inicio</span></a>
-    <div class="sidebar-section-title">MI ORGANIZACIÓN</div>
-    <div class="year-navigation">
-      <button type="button" id="previous-year" class="icon-button" aria-label="Año anterior">‹</button>
-      <label class="select-wrap"><span class="sr-only">Seleccionar año</span><select id="year-select"></select></label>
-      <button type="button" id="next-year" class="icon-button" aria-label="Año siguiente">›</button>
-    </div>
-    <details class="month-dropdown" open>
-      <summary>Meses del año <span aria-hidden="true">⌄</span></summary>
-      <nav id="month-list" class="month-list" aria-label="Seleccionar mes"></nav>
-    </details>
-    <div class="sidebar-bottom"><span class="sidebar-spark" aria-hidden="true">✦</span><p>Un mes para avanzar.<br /><strong>A tu propio ritmo.</strong></p><span id="year-task-count" class="year-task-count"></span></div>
-  </aside>
-
+<div class="shared-app">
+  {{ account_sidebar(user, 'tasks') }}
   <main id="main-content" class="workspace-main">
     <header class="workspace-header">
       <div><p class="eyebrow">TU CALENDARIO</p><h1>Un plan para lo que viene<span class="brand-dot">.</span></h1><p>Consulta tus tareas personales y las de tus espacios compartidos.</p></div>
-      <div class="workspace-account">
-        <p class="account-email">{{ user.email }}</p>
-        <a class="secondary-button" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
-        {{ messages_link('secondary-button') }}
-        <form method="post" action="{{ url_for('logout') }}"><button class="text-button" type="submit">Cerrar sesión</button></form>
-        <button class="primary-button" type="button" id="new-task-button"><span aria-hidden="true">＋</span> Nueva tarea</button>
-      </div>
+      <button class="primary-button" type="button" id="new-task-button"><span aria-hidden="true">＋</span> Nueva tarea</button>
     </header>
     <div id="notice" class="notice" role="alert" hidden></div>
     <div id="loading-status" class="loading-status" role="status">Cargando tu block…</div>
+    <section class="calendar-period" aria-label="Mes y año">
+      <div class="calendar-period-top">
+        <div class="year-navigation">
+          <button type="button" id="previous-year" class="icon-button" aria-label="Año anterior">‹</button>
+          <label class="select-wrap"><span class="sr-only">Seleccionar año</span><select id="year-select"></select></label>
+          <button type="button" id="next-year" class="icon-button" aria-label="Año siguiente">›</button>
+        </div>
+        <span id="year-task-count" class="year-task-count"></span>
+      </div>
+      <details class="month-dropdown" open>
+        <summary>Meses del año <span aria-hidden="true">⌄</span></summary>
+        <nav id="month-list" class="month-list" aria-label="Seleccionar mes"></nav>
+      </details>
+    </section>
     <section class="summary" aria-label="Resumen del mes">
       <div class="summary-item"><span class="summary-label">Tareas del mes</span><span class="summary-number" id="total-count">0</span></div>
       <div class="summary-item"><span class="summary-label">Por hacer</span><span class="summary-number" id="pending-count">0</span></div>

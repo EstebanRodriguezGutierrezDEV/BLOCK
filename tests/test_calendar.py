@@ -240,6 +240,56 @@ def test_browser_registration_and_logout(calendar_page):
     playwright.expect(page.get_by_role("heading", name="Iniciar sesión")).to_be_visible()
 
 
+def test_account_panel_and_sidebar_work_across_the_app(calendar_page):
+    page, api, base_url, _, _ = calendar_page
+    navigation = page.get_by_role("navigation", name="Secciones")
+    labels = ["Mi calendario", "Espacios compartidos", "Mensajes", "Mi cuenta"]
+    page.goto(f"{base_url}/tareas")
+    playwright.expect(navigation.get_by_role("link")).to_have_text(labels)
+    for name, route in (("Espacios compartidos", "espacios"), ("Mensajes", "mensajes"), ("Mi cuenta", "cuenta")):
+        navigation.get_by_role("link", name=name, exact=True).click()
+        playwright.expect(page).to_have_url(f"{base_url}/{route}")
+        playwright.expect(navigation.get_by_role("link")).to_have_text(labels)
+        playwright.expect(navigation.get_by_role("link", name=name, exact=True)).to_have_attribute("aria-current", "page")
+    playwright.expect(page.get_by_role("heading", name="Mi cuenta")).to_be_visible()
+
+    new_password = "Contraseña nueva del panel 8"
+    page.get_by_label("Contraseña actual").fill(PASSWORD)
+    page.get_by_label("Contraseña nueva", exact=True).fill(new_password)
+    page.get_by_label("Confirma la contraseña nueva").fill("Otra contraseña distinta")
+    page.get_by_role("button", name="Guardar contraseña").click()
+    playwright.expect(page.get_by_role("alert")).to_contain_text("La confirmación debe coincidir")
+    page.get_by_label("Contraseña actual").fill(PASSWORD)
+    page.get_by_label("Contraseña nueva", exact=True).fill(new_password)
+    page.get_by_label("Confirma la contraseña nueva").fill(new_password)
+    page.get_by_role("button", name="Guardar contraseña").click()
+    playwright.expect(page.locator(".account-success")).to_contain_text("Contraseña actualizada")
+
+    page.get_by_role("button", name="Cerrar mi sesión").click()
+    page.goto(f"{base_url}/cuenta")
+    playwright.expect(page).to_have_url(f"{base_url}/iniciar-sesion?volver=cuenta")
+    page.get_by_label("Correo electrónico").fill("calendario@example.com")
+    page.get_by_label("Contraseña", exact=True).fill(new_password)
+    page.get_by_role("button", name="Iniciar sesión").click()
+    playwright.expect(page).to_have_url(f"{base_url}/cuenta")
+    page.set_viewport_size({"width": 390, "height": 840})
+    assert page.evaluate("document.documentElement.scrollWidth === window.innerWidth")
+
+    confirmation = page.get_by_role("dialog", name="¿Quieres eliminar tu cuenta?")
+    page.get_by_role("button", name="Eliminar mi cuenta").click()
+    playwright.expect(confirmation).to_be_visible()
+    confirmation.get_by_role("button", name="Cancelar").click()
+    playwright.expect(confirmation).to_be_hidden()
+    page.get_by_role("button", name="Eliminar mi cuenta").click()
+    confirmation.get_by_label("Contraseña para confirmar").fill("Incorrecta")
+    confirmation.get_by_role("button", name="Eliminar definitivamente").click()
+    playwright.expect(confirmation.get_by_role("alert")).to_contain_text("La contraseña actual no coincide.")
+    confirmation.get_by_label("Contraseña para confirmar").fill(new_password)
+    confirmation.get_by_role("button", name="Eliminar definitivamente").click()
+    playwright.expect(page.get_by_role("status")).to_contain_text("Tu cuenta se ha eliminado.")
+    assert api.post("/api/auth/login", json={"email": "calendario@example.com", "password": new_password}).status_code == 401
+
+
 def test_browser_shared_workspace_invitation_and_discussion(calendar_page):
     page, api, base_url, _, _ = calendar_page
     register_and_login(api, "equipo@example.com")

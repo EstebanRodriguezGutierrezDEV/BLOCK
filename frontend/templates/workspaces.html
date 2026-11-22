@@ -1,31 +1,12 @@
 {% extends "base.html" %}
-{% from "navigation.html" import messages_link %}
+{% from "navigation.html" import account_sidebar %}
 {% block title %}Espacios compartidos · Tu block de tareas{% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='workspaces.js') }}" type="module"></script>
 {% endblock %}
 {% block content %}
 <div id="shared-app" class="shared-app" data-workspace-id="{{ workspace_id or '' }}">
-  <aside class="shared-sidebar" aria-label="Tus espacios">
-    <a href="{{ url_for('index') }}" class="brand">
-      <img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" />
-      <span>Tu block de tareas<span class="brand-dot">.</span></span>
-    </a>
-    <a class="shared-personal-link" href="{{ url_for('tasks') }}">Mi calendario</a>
-    {{ messages_link('shared-personal-link') }}
-    <div class="shared-nav-heading">
-      <h2>Espacios compartidos</h2>
-      <button id="create-workspace-button" class="icon-button" type="button" aria-label="Crear espacio">+</button>
-    </div>
-    <nav id="workspace-links" aria-label="Tableros"></nav>
-    <div class="shared-account">
-      <span>{{ user.email }}</span>
-      <form method="post" action="{{ url_for('logout') }}">
-        <button type="submit" class="text-button">Cerrar sesión</button>
-      </form>
-    </div>
-  </aside>
-
+  {{ account_sidebar(user, 'workspaces') }}
   <main id="main-content" class="shared-main">
     <header class="shared-header">
       <div>
@@ -39,6 +20,10 @@
         <button id="create-card" class="primary-button" type="button">Nueva tarea</button>
       </div>
     </header>
+    <div id="workspace-switcher" class="workspace-switcher" hidden>
+      <nav id="workspace-links" aria-label="Tableros"></nav>
+      <button id="create-workspace-button" class="secondary-button" type="button">Crear espacio</button>
+    </div>
     <p id="board-error" class="notice" role="alert" hidden></p>
     <p id="board-permissions-hint" class="field-hint" hidden>Puedes reordenar las tareas. Para cambiar su estado, pide permiso al propietario.</p>
     <p id="board-loading" class="loading-status" role="status">Cargando espacios…</p>

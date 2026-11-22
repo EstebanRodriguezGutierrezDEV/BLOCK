@@ -2,7 +2,7 @@ from time import time
 
 from backend import db, mail, main
 from backend.attachment_policy import MAX_ATTACHMENT_BYTES
-from conftest import register_and_login
+from conftest import PASSWORD, register_and_login
 
 
 def headers(token):
@@ -135,6 +135,62 @@ def test_invitation_resends_rejection_and_expiry(api):
         connection.execute("UPDATE workspace_invitations SET expires_at = ?", (int(time()) - 1,))
     assert api.post(f"/api/messages/{expiring}/accept", headers=guest).status_code == 404
     assert api.get("/api/workspaces", headers=guest).json() == []
+
+
+def test_deleting_an_account_removes_private_data_and_preserves_shared_boards(api):
+    owner_email = "owner@example.com"
+    guest_email = "guest@example.com"
+    owner = headers(register_and_login(api, owner_email))
+    guest = headers(register_and_login(api, guest_email))
+    owner_id = api.get("/api/auth/me", headers=owner).json()["id"]
+    guest_id = api.get("/api/auth/me", headers=guest).json()["id"]
+
+    def workspace(name, member_email=None):
+        space = api.post("/api/workspaces", headers=owner, json={"name": name}).json()
+        if member_email:
+            invitation = api.post(
+                f"/api/workspaces/{space['id']}/invitations", headers=owner, json={"email": member_email},
+            )
+            assert invitation.status_code == 201
+            invite_id = api.get("/api/messages", headers=guest).json()[0]["id"]
+            assert api.post(f"/api/messages/{invite_id}/accept", headers=guest).status_code == 200
+        return space["id"]
+
+    shared = workspace("Equipo", guest_email)
+    solo = workspace("Solo")
+    personal = api.post("/api/tasks", headers=owner, json=task_data("Privada")).json()
+    shared_card = api.post(
+        "/api/tasks", params={"workspace_id": shared}, headers=owner, json=task_data("Trabajo de equipo"),
+    ).json()
+    scope = f"?workspace_id={shared}"
+    card = f"/api/tasks/{shared_card['id']}"
+    comments = card + "/comments" + scope
+    api.post(comments, headers=owner, json={"body": "Comentario de la cuenta"})
+    api.post(comments, headers=guest, json={"body": "Comentario del equipo"})
+    upload = card + "/attachments" + scope + "&file_name=archivo.txt"
+    binary_headers = {**owner, "Content-Type": "application/octet-stream"}
+    assert api.post(upload, headers=binary_headers, content=b"Documento temporal").status_code == 201
+    friend = api.post("/api/friends", headers=owner, json={"email": guest_email}).json()["friendship_id"]
+    assert api.post(f"/api/friends/{friend}/accept", headers=guest).status_code == 204
+    assert api.post(f"/api/chats/{friend}", headers=guest, json={"body": "Chat privado"}).status_code == 201
+
+    action = "/api/auth/delete-account"
+    assert api.post(action, json={"current_password": PASSWORD}).status_code == 401
+    assert api.post(action, headers=owner, json={"current_password": "Incorrecta"}).status_code == 403
+    assert api.get("/api/auth/me", headers=owner).status_code == 200
+    assert api.post(action, headers=owner, json={"current_password": PASSWORD}).status_code == 204
+    assert api.get("/api/auth/me", headers=owner).status_code == 401
+    assert api.get(f"/api/chats/{friend}", headers=guest).status_code == 404
+    detail = api.get(f"/api/workspaces/{shared}", headers=guest).json()
+    assert detail["owner_id"] == guest_id and detail["can_invite"] is True
+    assert [member["id"] for member in detail["members"]] == [guest_id]
+    assert api.get(card + scope, headers=guest).json()["title"] == "Trabajo de equipo"
+    assert [entry["body"] for entry in api.get(comments, headers=guest).json()] == ["Comentario del equipo"]
+    assert api.get(card + "/attachments" + scope, headers=guest).json() == []
+    with db.database() as connection:
+        assert connection.execute("SELECT 1 FROM users WHERE id = ?", (owner_id,)).fetchone() is None
+        assert connection.execute("SELECT 1 FROM workspaces WHERE id = ?", (solo,)).fetchone() is None
+        assert connection.execute("SELECT 1 FROM tasks WHERE id = ?", (personal["id"],)).fetchone() is None
 
 
 def test_calendar_only_includes_personal_tasks_and_accepted_workspaces(api, monkeypatch):

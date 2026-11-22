@@ -131,6 +131,8 @@ def auth_destination():
     if request.args.get("volver") == "espacios":
         workspace_id = request.args.get("espacio", type=int)
         return {"volver": "espacios", "espacio": workspace_id if 0 < (workspace_id or 0) <= MAX_RECORD_ID else None}
+    if request.args.get("volver") == "cuenta":
+        return {"volver": "cuenta"}
     return {}
 
 
@@ -167,7 +169,10 @@ def register():
 @app.route("/iniciar-sesion", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
-        return auth_form("login", account_created=request.args.get("cuenta_creada") == "1")
+        return auth_form(
+            "login", account_created=request.args.get("cuenta_creada") == "1",
+            account_deleted=request.args.get("cuenta_eliminada") == "1",
+        )
     email = request.form.get("email", "").strip()
     status, payload, headers = json_api("/api/auth/login", {"email": email, "password": request.form.get("password", "")})
     if status != 200:
@@ -180,6 +185,8 @@ def login():
         landing = url_for("messages")
     elif destination.get("volver") == "espacios":
         landing = url_for("workspaces", workspace_id=destination["espacio"])
+    elif destination.get("volver") == "cuenta":
+        landing = url_for("account")
     else:
         landing = url_for("tasks")
     response = redirect(landing, code=303)
@@ -218,7 +225,7 @@ def render_session_page(template, user, token, sign_in, **context):
     return response
 
 
-def protected_page(template, *, sign_in=None, workspace_id=None):
+def protected_page(template, *, sign_in=None, workspace_id=None, **context):
     sign_in = sign_in or url_for("login")
     token = session_token()
     if not token:
@@ -239,6 +246,7 @@ def protected_page(template, *, sign_in=None, workspace_id=None):
     return render_session_page(
         template, user, token, sign_in, workspace_id=workspace_id,
         attachment_limit_bytes=MAX_ATTACHMENT_BYTES, attachment_limit_message=ATTACHMENT_LIMIT_MESSAGE,
+        **context,
     )
 
 
@@ -262,6 +270,54 @@ def invitation():
 @app.get("/mensajes")
 def messages():
     return protected_page("messages.html", sign_in=url_for("login", volver="mensajes"))
+
+
+def account_page(status=200, headers=None, **context):
+    response = app.make_response(protected_page("account.html", sign_in=url_for("login", volver="cuenta"), **context))
+    if response.status_code == 200:
+        response.status_code = status
+        response.headers.update(headers or {})
+    return response
+
+
+@app.get("/cuenta")
+def account():
+    return account_page(password_saved=request.args.get("contrasena") == "guardada")
+
+
+def submit_account_form(action, data, error_field):
+    token = session_token()
+    sign_in = url_for("login", volver="cuenta")
+    if not token:
+        return redirect(sign_in, code=303)
+    if request.form.get("session_view") != session_view(token):
+        return redirect(url_for("account"), code=303)
+
+    status, payload, headers = json_api("/api/auth/" + action, data, token=token)
+    if status == 401:
+        return clear_session_cookies(redirect(sign_in, code=303))
+    if status != 204:
+        return account_page(status, retry_headers(headers), **{error_field: error_message(payload)})
+    if action == "delete-account":
+        return clear_session_cookies(redirect(url_for("login", cuenta_eliminada="1"), code=303))
+    return redirect(url_for("account", contrasena="guardada"), code=303)
+
+
+@app.post("/cuenta/contrasena")
+def account_password():
+    new_password = request.form.get("new_password", "")
+    if new_password != request.form.get("confirm_password", ""):
+        return account_page(422, password_error="La confirmación debe coincidir con la contraseña nueva.")
+    return submit_account_form("change-password", {
+        "current_password": request.form.get("current_password", ""), "new_password": new_password,
+    }, "password_error")
+
+
+@app.post("/cuenta/eliminar")
+def account_delete():
+    return submit_account_form(
+        "delete-account", {"current_password": request.form.get("current_password", "")}, "delete_error",
+    )
 
 
 def proxy_api(path, *, binary_upload=False, file_response=False):

@@ -2,6 +2,7 @@ from backend import accounts, db, rate_limits
 from conftest import PASSWORD, register_and_login
 
 EMAIL = "marta@example.com"
+NEW_PASSWORD = "Una contraseña nueva 9"
 
 
 def test_registration_allows_immediate_login_and_preserves_existing_password(api):
@@ -82,3 +83,21 @@ def test_registration_ignores_untrusted_forwarding_headers(api, monkeypatch):
     )
     assert blocked.status_code == 429
     assert int(blocked.headers["Retry-After"]) > 0
+
+
+def test_password_change_requires_the_current_password_and_revokes_other_sessions(api):
+    credentials = {"email": EMAIL, "password": PASSWORD}
+    token = register_and_login(api, EMAIL)
+    other_session = api.post("/api/auth/login", json=credentials).json()["token"]
+    auth = {"Authorization": f"Bearer {token}"}
+    change = {"current_password": PASSWORD, "new_password": NEW_PASSWORD}
+    path = "/api/auth/change-password"
+    assert api.post(path, json=change).status_code == 401
+    assert api.post(path, headers=auth, json={**change, "current_password": "Incorrecta"}).status_code == 403
+    invalid = api.post(path, headers=auth, json={**change, "new_password": "Corta"})
+    assert invalid.status_code == 422 and "Corta" not in invalid.text
+    assert api.post(path, headers=auth, json=change).status_code == 204
+    assert api.get("/api/auth/me", headers=auth).status_code == 200
+    assert api.get("/api/auth/me", headers={"Authorization": f"Bearer {other_session}"}).status_code == 401
+    assert api.post("/api/auth/login", json=credentials).status_code == 401
+    assert api.post("/api/auth/login", json={**credentials, "password": NEW_PASSWORD}).status_code == 200

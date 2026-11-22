@@ -19,12 +19,13 @@ export async function request(path, settings = {}, loginPath = "/iniciar-sesion"
         ? "La conexión está tardando demasiado. Vuelve a intentarlo."
         : "No se pudo conectar con el servidor.");
     }
+    const endingSession = document.documentElement.hasAttribute("data-ending-session");
     if (response.status === 409 && response.headers.has("X-Todo-Session-Changed")) {
-      window.location.reload();
+      if (!endingSession) window.location.reload();
       throw new Error("La sesión ha cambiado.");
     }
     if (response.status === 401) {
-      window.location.replace(loginPath);
+      if (!endingSession) window.location.replace(loginPath);
       throw new Error("Inicia sesión para continuar.");
     }
     if (!response.ok) {

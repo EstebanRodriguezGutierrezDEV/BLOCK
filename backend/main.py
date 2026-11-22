@@ -45,6 +45,8 @@ async def validation_error(request: Request, error: RequestValidationError):
     messages = {
         "email": "Introduce una dirección de correo válida.",
         "password": "Introduce una contraseña válida.",
+        "current_password": "Introduce tu contraseña actual.",
+        "new_password": "La contraseña nueva debe tener entre 12 y 128 caracteres.",
     }
     if request.url.path == "/api/auth/register":
         messages["password"] = "La contraseña debe tener entre 12 y 128 caracteres."

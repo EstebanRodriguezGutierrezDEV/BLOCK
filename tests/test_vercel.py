@@ -163,6 +163,20 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     assert owner.get("/api/tasks", base_url=base_url, headers=headers).json == [update.json]
     assert guest.delete(path, base_url=base_url, headers=headers).status_code == 404
     assert owner.delete(path, base_url=base_url, headers=headers).status_code == 204
+    guest_view = guest.get_cookie("todo_session_view", domain="tareas.example.com").value
+    account_password = "Contraseña de integración nueva 8"
+    changed_password = guest.post("/cuenta/contrasena", base_url=base_url, headers=headers, data={
+        "session_view": guest_view, "current_password": PASSWORD,
+        "new_password": account_password, "confirm_password": account_password,
+    })
+    assert changed_password.location == "/cuenta?contrasena=guardada"
+    removed = guest.post("/cuenta/eliminar", base_url=base_url, headers=headers, data={
+        "session_view": guest_view, "current_password": account_password,
+    })
+    assert removed.location == "/iniciar-sesion?cuenta_eliminada=1"
+    assert guest.get("/cuenta", base_url=base_url, headers=headers).location == "/iniciar-sesion?volver=cuenta"
+    assert owner.get(chat, base_url=base_url, headers=headers).status_code == 404
+    assert owner.get("/api/tasks" + scope, base_url=base_url, headers=headers).status_code == 200
     assert owner.post("/cerrar-sesion", base_url=base_url, headers=headers).status_code == 303
     assert owner.get("/api/tasks", base_url=base_url, headers=headers).status_code == 401
 

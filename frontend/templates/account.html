@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "navigation.html" import account_sidebar %}
+{% block title %}Mi cuenta · Tu block de tareas{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='account.js') }}" type="module"></script>
+{% endblock %}
+{% block content %}
+<div class="shared-app">
+  {{ account_sidebar(user, 'account') }}
+  <main id="main-content" class="shared-main account-main">
+    <header class="shared-header">
+      <div>
+        <h1>Mi cuenta</h1>
+        <p class="account-profile">Correo electrónico <strong>{{ user.email }}</strong></p>
+      </div>
+    </header>
+    {% if password_saved %}
+    <p class="account-success" role="status">Contraseña actualizada. Las demás sesiones se han cerrado.</p>
+    {% endif %}
+    <div class="account-panels">
+      <section class="account-panel" aria-labelledby="password-title">
+        <h2 id="password-title">Cambiar contraseña</h2>
+        <form method="post" action="{{ url_for('account_password') }}">
+          <input type="hidden" name="session_view" value="{{ session_view }}" />
+          <label class="field-label" for="current-password">Contraseña actual</label>
+          <input type="password" name="current_password" id="current-password" autocomplete="current-password" maxlength="128" required />
+          <label class="field-label" for="new-password">Contraseña nueva</label>
+          <input type="password" name="new_password" id="new-password" autocomplete="new-password" minlength="12" maxlength="128" aria-describedby="new-password-hint" required />
+          <p id="new-password-hint" class="field-hint">Usa al menos 12 caracteres.</p>
+          <label class="field-label" for="confirm-password">Confirma la contraseña nueva</label>
+          <input type="password" name="confirm_password" id="confirm-password" autocomplete="new-password" minlength="12" maxlength="128" required />
+          {% if password_error %}<p class="notice" role="alert">{{ password_error }}</p>{% endif %}
+          <div class="dialog-actions"><button type="submit" class="primary-button">Guardar contraseña</button></div>
+        </form>
+      </section>
+      <div class="account-secondary">
+        <section class="account-panel" aria-labelledby="session-title">
+          <h2 id="session-title">Sesión</h2>
+          <form method="post" action="{{ url_for('logout') }}" data-ends-session>
+            <button type="submit" class="secondary-button">Cerrar mi sesión</button>
+          </form>
+        </section>
+        <section class="account-panel account-danger" aria-labelledby="delete-account-title">
+          <h2 id="delete-account-title">Eliminar cuenta</h2>
+          <p>Elimina permanentemente tu cuenta y tus datos personales.</p>
+          <button id="open-delete-account" type="button" class="primary-button danger-button">Eliminar mi cuenta</button>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<dialog id="delete-account-dialog" class="task-dialog" aria-labelledby="delete-account-heading" aria-describedby="delete-account-effects"{% if delete_error %} data-reopen{% endif %}>
+  <form method="post" action="{{ url_for('account_delete') }}" data-ends-session>
+    <div class="dialog-top"><h2 id="delete-account-heading">¿Quieres eliminar tu cuenta?</h2></div>
+    <div id="delete-account-effects">
+      <p>Se borrarán tus tareas personales, tus chats, tus comentarios, los archivos que subiste y los tableros donde eres el único miembro. Esta acción es permanente.</p>
+      <p>Los tableros con otros miembros conservarán sus tareas. Si eres propietario de uno de ellos, la propiedad pasará a otro miembro.</p>
+    </div>
+    <input type="hidden" name="session_view" value="{{ session_view }}" />
+    <label class="field-label" for="delete-account-password">Contraseña para confirmar</label>
+    <input type="password" id="delete-account-password" name="current_password" autocomplete="current-password" maxlength="128" required />
+    {% if delete_error %}<p class="notice dialog-error" role="alert">{{ delete_error }}</p>{% endif %}
+    <div class="dialog-actions">
+      <button id="cancel-delete-account" type="button" class="secondary-button" autofocus>Cancelar</button>
+      <button type="submit" class="primary-button danger-button">Eliminar definitivamente</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

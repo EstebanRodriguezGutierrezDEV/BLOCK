@@ -59,6 +59,7 @@ function formatDate(date) {
 }
 
 function renderLinks(spaces) {
+  $("#workspace-switcher").hidden = !spaces.length;
   $("#workspace-links").replaceChildren(...spaces.map((space) => {
     const link = node("a", "workspace-link", space.name);
     link.href = "/espacios/" + space.id;

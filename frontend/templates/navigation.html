@@ -3,3 +3,24 @@
     Mensajes <span class="unread-dot" data-unread-dot aria-hidden="true" hidden></span>
   </a>
 {% endmacro %}
+
+{% macro account_sidebar(user, current) %}
+  <aside class="shared-sidebar" aria-label="Navegación de la cuenta">
+    <a href="{{ url_for('index') }}" class="brand">
+      <img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" />
+      <span>Tu block de tareas<span class="brand-dot">.</span></span>
+    </a>
+    <nav class="account-nav" aria-label="Secciones">
+      <a class="workspace-link" href="{{ url_for('tasks') }}"{% if current == 'tasks' %} aria-current="page"{% endif %}>Mi calendario</a>
+      <a class="workspace-link" href="{{ url_for('workspaces') }}"{% if current == 'workspaces' %} aria-current="page"{% endif %}>Espacios compartidos</a>
+      {{ messages_link('workspace-link', current=current == 'messages') }}
+      <a class="workspace-link" href="{{ url_for('account') }}"{% if current == 'account' %} aria-current="page"{% endif %}>Mi cuenta</a>
+    </nav>
+    <div class="shared-account">
+      <span class="account-email">{{ user.email }}</span>
+      <form method="post" action="{{ url_for('logout') }}" data-ends-session>
+        <button type="submit" class="text-button">Cerrar sesión</button>
+      </form>
+    </div>
+  </aside>
+{% endmacro %}

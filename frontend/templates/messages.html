@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "navigation.html" import messages_link %}
+{% from "navigation.html" import account_sidebar %}
 {% block title %}Mensajes · Tu block de tareas{% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='messages.js') }}" type="module"></script>
@@ -7,21 +7,7 @@
 {% endblock %}
 {% block content %}
 <div id="messages-app" class="shared-app messages-app">
-  <aside class="shared-sidebar" aria-label="Navegación de la cuenta">
-    <a href="{{ url_for('index') }}" class="brand">
-      <img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" />
-      <span>Tu block de tareas<span class="brand-dot">.</span></span>
-    </a>
-    <a class="shared-personal-link" href="{{ url_for('tasks') }}">Mi calendario</a>
-    <a class="shared-personal-link" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
-    {{ messages_link('workspace-link', current=true) }}
-    <div class="shared-account">
-      <span>{{ user.email }}</span>
-      <form method="post" action="{{ url_for('logout') }}">
-        <button type="submit" class="text-button">Cerrar sesión</button>
-      </form>
-    </div>
-  </aside>
+  {{ account_sidebar(user, 'messages') }}
   <main id="main-content" class="shared-main inbox" data-user-email="{{ user.email }}">
     <header class="shared-header">
       <div>

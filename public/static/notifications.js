@@ -52,7 +52,7 @@ function showUnread({ total, chats }) {
 }
 
 export function refreshUnread(force = false) {
-  if (document.hidden) return;
+  if (document.hidden || document.documentElement.hasAttribute("data-ending-session")) return;
   if (pending && !force) return pending;
   const current = request("/api/chats/unread", undefined, dialog.dataset.loginUrl)
     .then((summary) => {

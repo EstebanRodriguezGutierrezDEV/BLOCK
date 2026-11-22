@@ -13,6 +13,7 @@
     <h1 id="auth-heading">{{ titles[mode] }}</h1>
     {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
     {% if account_created %}<p class="auth-success" role="status">Cuenta creada. Ya puedes iniciar sesión.</p>{% endif %}
+    {% if account_deleted %}<p class="auth-success" role="status">Tu cuenta se ha eliminado.</p>{% endif %}
     {% if destination.volver == 'mensajes' %}
     <p>Inicia sesión para abrir tu bandeja de mensajes.</p>
     {% endif %}

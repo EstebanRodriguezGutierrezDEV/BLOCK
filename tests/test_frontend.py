@@ -83,3 +83,8 @@ def test_welcome_and_task_screens(api, monkeypatch):
         assert client.get(path).status_code == 404
         stale = client.get("/api/friends", headers={"X-Todo-Session-View": previous_view})
         assert stale.status_code == 409 and stale.headers["X-Todo-Session-Changed"] == "1"
+        stale_form = client.post("/cuenta/eliminar", headers=origin, data={
+            "session_view": previous_view, "current_password": PASSWORD,
+        })
+        assert stale_form.location == "/cuenta"
+        assert client.get("/cuenta").status_code == 200
