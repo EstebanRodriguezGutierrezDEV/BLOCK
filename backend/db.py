@@ -187,6 +187,33 @@ def init_workspaces(connection: sqlite3.Connection | PostgresConnection) -> None
         )
     """)
     connection.execute("CREATE INDEX IF NOT EXISTS direct_messages_by_chat ON direct_messages (friendship_id, id)")
+    connection.execute(f"""
+        CREATE TABLE IF NOT EXISTS direct_message_attachments (
+            message_id {reference} PRIMARY KEY REFERENCES direct_messages(id) ON DELETE CASCADE,
+            file_name TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL CHECK (size_bytes BETWEEN 0 AND {MAX_ATTACHMENT_BYTES}),
+            preview_type TEXT,
+            content {binary_type} NOT NULL
+        )
+    """)
+    if not table_columns(connection, "direct_message_reads"):
+        connection.execute(f"""
+            CREATE TABLE direct_message_reads (
+                friendship_id {reference} NOT NULL REFERENCES friendships(id) ON DELETE CASCADE,
+                user_id {reference} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                last_read_id {reference} NOT NULL,
+                PRIMARY KEY (friendship_id, user_id)
+            )
+        """)
+        connection.execute("""
+            WITH latest AS (
+                SELECT friendship_id, MAX(id) AS last_read_id FROM direct_messages GROUP BY friendship_id
+            )
+            INSERT INTO direct_message_reads (friendship_id, user_id, last_read_id)
+            SELECT f.id, f.user_low, l.last_read_id FROM latest l JOIN friendships f ON f.id = l.friendship_id
+            UNION ALL
+            SELECT f.id, f.user_high, l.last_read_id FROM latest l JOIN friendships f ON f.id = l.friendship_id
+        """)
 
 
 def init_db() -> None:

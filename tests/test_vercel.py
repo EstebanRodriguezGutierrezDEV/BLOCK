@@ -9,7 +9,7 @@ import pytest
 
 from backend import accounts, rate_limits
 from backend.attachment_policy import MAX_ATTACHMENT_BYTES
-from conftest import PASSWORD
+from conftest import PASSWORD, TEST_IMAGE
 from frontend.app import app as web
 from frontend import embedded_api
 
@@ -129,6 +129,26 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     sent = guest.post(chat, base_url=base_url, headers=headers, json={"body": "Hola desde el tablero"})
     assert sent.status_code == 201
     assert owner.get(chat + "?after_id=0", base_url=base_url, headers=headers).json["messages"] == [sent.json]
+    unread = "/api/chats/unread"
+    assert owner.get(unread, base_url=base_url, headers=headers).json == {
+        "total": 1, "chats": [{"friendship_id": friendship, "unread_count": 1}],
+    }
+    assert owner.post(
+        chat + "/read", base_url=base_url, headers=headers, json={"message_id": sent.json["id"]},
+    ).status_code == 204
+    assert owner.get(unread, base_url=base_url, headers=headers).json == {"total": 0, "chats": []}
+
+    shared_file = guest.post(
+        chat + "/attachments?file_name=Imagen.png", base_url=base_url, headers=binary_headers, data=TEST_IMAGE,
+    )
+    assert shared_file.status_code == 201
+    file_path = f"{chat}/attachments/{shared_file.json['id']}"
+    image_preview = owner.get(file_path + "/preview", base_url=base_url, headers=headers)
+    assert image_preview.data == TEST_IMAGE and image_preview.headers["Content-Type"] == "image/png"
+    assert image_preview.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+    assert image_preview.headers["Cache-Control"] == "no-store"
+    downloaded_file = owner.get(file_path, base_url=base_url, headers=headers)
+    assert downloaded_file.data == TEST_IMAGE and downloaded_file.headers["Content-Type"] == "application/octet-stream"
 
     assert owner.post("/api/tasks", base_url=base_url, headers={}, json=task).status_code == 403
     created = owner.post("/api/tasks", base_url=base_url, headers=headers, json=task)

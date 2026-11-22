@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 from datetime import date
 import sqlite3
 from typing import Annotated, Literal, NamedTuple
-from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -11,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 from .accounts import CurrentUser, router as accounts_router
+from .attachment_policy import AttachmentName, attachment_response, clean_attachment_name
 from .db import PostgresConnection, database, init_db, utc_timestamp
 from .rate_limits import ATTACHMENT_UPLOADS, enforce_rate_limits
 from .request_security import APIInput, MAX_RECORD_ID, OptionalWorkspaceID, RecordID, RequestSecurity, WorkspaceID
@@ -355,11 +355,9 @@ def store_attachment(task_id: int, workspace_id: int, user: dict, file_name: str
 @app.post("/api/tasks/{task_id}/attachments", status_code=201)
 async def upload_attachment(
     task_id: RecordID, workspace_id: WorkspaceID, user: CurrentUser,
-    request: Request, file_name: Annotated[str, Query(min_length=1, max_length=255)],
+    request: Request, file_name: AttachmentName,
 ):
-    file_name = "".join(char for char in file_name if char.isprintable()).strip()
-    if file_name in {"", ".", ".."} or "/" in file_name or "\\" in file_name:
-        raise HTTPException(422, "El nombre del archivo no es válido.")
+    file_name = clean_attachment_name(file_name)
     await run_in_threadpool(enforce_rate_limits, (ATTACHMENT_UPLOADS, user["id"]))
     content = await request.body()
     return await run_in_threadpool(store_attachment, task_id, workspace_id, user, file_name, content)
@@ -377,11 +375,4 @@ def download_attachment(
         """, (task_id, attachment_id)).fetchone()
         if attachment is None:
             raise HTTPException(404, "Archivo no encontrado.")
-        return Response(
-            content=attachment["content"], media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(attachment["file_name"], safe=""),
-                "X-Content-Type-Options": "nosniff",
-                "Cache-Control": "no-store",
-            },
-        )
+        return attachment_response(attachment["file_name"], attachment["content"])

@@ -1,11 +1,11 @@
 import { request as apiRequest } from "./http.js";
+import { formatFileSize, saveDownload } from "./files.js";
 
 const $ = (selector) => document.querySelector(selector);
 const columns = [...document.querySelectorAll("[data-column]")];
 const statusNames = { todo: "Por hacer", doing: "En curso", done: "Hecho" };
 const dateFormat = new Intl.DateTimeFormat("es", { dateStyle: "medium", timeZone: "UTC" });
 const commentFormat = new Intl.DateTimeFormat("es", { dateStyle: "medium", timeStyle: "short" });
-const fileSizeFormat = new Intl.NumberFormat("es", { maximumFractionDigits: 1 });
 const workspaceDialog = $("#workspace-dialog");
 const inviteDialog = $("#invite-dialog");
 const permissionsDialog = $("#permissions-dialog");
@@ -430,12 +430,6 @@ handleForm("#card-form", async (details) => {
   cardDialog.close();
 });
 
-function formatFileSize(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 ** 2) return fileSizeFormat.format(bytes / 1024) + " KiB";
-  return fileSizeFormat.format(bytes / 1024 ** 2) + " MiB";
-}
-
 function attachmentRow(task, attachment) {
   const item = node("li", "attachment-row", "");
   const details = node("div", "", "");
@@ -453,14 +447,7 @@ function attachmentRow(task, attachment) {
       const blob = await request(taskPath(task.id, "/attachments/" + attachment.id), {
         responseType: "blob", timeoutMs: 60000,
       });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = attachment.file_name;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      saveDownload(blob, attachment.file_name);
     } catch (error) {
       if (cardDialog.open && activeCard === task) message($("#attachment-error"), error.message);
     } finally {

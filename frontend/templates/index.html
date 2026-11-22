@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "navigation.html" import messages_link %}
 {% block content %}
 <div class="welcome-page">
   <header class="welcome-header">
@@ -7,7 +8,7 @@
       {% if user %}
       <a class="nav-link" href="{{ url_for('tasks') }}">Mis tareas</a>
       <a class="nav-link" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
-      <a class="nav-link" href="{{ url_for('messages') }}">Mensajes</a>
+      {{ messages_link('nav-link') }}
       {% else %}
       <a class="nav-link" href="{{ url_for('login') }}">Iniciar sesión</a>
       <a class="nav-link" href="{{ url_for('register') }}">Registrarse</a>

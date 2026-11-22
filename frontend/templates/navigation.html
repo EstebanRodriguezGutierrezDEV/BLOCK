@@ -1,0 +1,5 @@
+{% macro messages_link(link_class, current=false) %}
+  <a class="{{ link_class }}" href="{{ url_for('messages') }}" aria-describedby="unread-description"{% if current %} aria-current="page"{% endif %}>
+    Mensajes <span class="unread-dot" data-unread-dot aria-hidden="true" hidden></span>
+  </a>
+{% endmacro %}

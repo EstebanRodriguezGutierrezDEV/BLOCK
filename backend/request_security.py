@@ -14,7 +14,7 @@ RecordID = Annotated[int, Path(ge=1, le=MAX_RECORD_ID)]
 WorkspaceID = Annotated[int, Query(ge=1, le=MAX_RECORD_ID)]
 OptionalWorkspaceID = Annotated[int | None, Query(ge=1, le=MAX_RECORD_ID)]
 SESSION_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43}")
-ATTACHMENT_ROUTE = re.compile(r"/api/tasks/[0-9]+/attachments/?")
+ATTACHMENT_ROUTE = re.compile(r"/api/(?:tasks|chats)/[0-9]+/attachments/?")
 
 
 class APIInput(BaseModel):

@@ -10,7 +10,7 @@ from urllib.parse import urlencode, urlsplit
 from flask import Flask, abort, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from backend.attachment_policy import ATTACHMENT_LIMIT_MESSAGE, MAX_ATTACHMENT_BYTES
+from backend.attachment_policy import ATTACHMENT_LIMIT_MESSAGE, MAX_ATTACHMENT_BYTES, PREVIEW_IMAGE_TYPES
 from backend.request_security import MAX_JSON_BYTES, MAX_RECORD_ID, SESSION_TOKEN_PATTERN
 
 PUBLIC_DIR = Path(__file__).resolve().parents[1] / "public"
@@ -140,12 +140,11 @@ def auth_form(mode, **kwargs):
 
 @app.get("/")
 def index():
-    user = None
     if token := session_token():
-        status, payload, _ = json_api("/api/auth/me", token=token)
+        status, user, _ = json_api("/api/auth/me", token=token)
         if status == 200:
-            user = payload
-    return render_template("index.html", user=user)
+            return render_session_page("index.html", user, token, url_for("index"))
+    return render_template("index.html")
 
 
 @app.get("/favicon.ico")
@@ -209,6 +208,16 @@ def logout():
     return clear_session_cookies(redirect(url_for("login"), code=303))
 
 
+def render_session_page(template, user, token, sign_in, **context):
+    view = session_view(token)
+    response = app.make_response(render_template(
+        template, user=user, session_view=view, session_sign_in=sign_in, **context,
+    ))
+    if request.cookies.get(SESSION_VIEW_COOKIE) != view:
+        response.set_cookie(SESSION_VIEW_COOKIE, view, secure=secure_cookie(), samesite="Lax")
+    return response
+
+
 def protected_page(template, *, sign_in=None, workspace_id=None):
     sign_in = sign_in or url_for("login")
     token = session_token()
@@ -227,14 +236,10 @@ def protected_page(template, *, sign_in=None, workspace_id=None):
         return render_template("service_error.html", title="Espacio no disponible", error=error_message(error)), 404
     if status != 200:
         return render_template("service_error.html", error=error_message(error)), status
-    view = session_view(token)
-    response = app.make_response(render_template(
-        template, user=user, workspace_id=workspace_id, session_view=view,
+    return render_session_page(
+        template, user, token, sign_in, workspace_id=workspace_id,
         attachment_limit_bytes=MAX_ATTACHMENT_BYTES, attachment_limit_message=ATTACHMENT_LIMIT_MESSAGE,
-    ))
-    if request.cookies.get(SESSION_VIEW_COOKIE) != view:
-        response.set_cookie(SESSION_VIEW_COOKIE, view, secure=secure_cookie(), samesite="Lax")
-    return response
+    )
 
 
 @app.get("/tareas")
@@ -259,7 +264,7 @@ def messages():
     return protected_page("messages.html", sign_in=url_for("login", volver="mensajes"))
 
 
-def proxy_api(path, *, binary_upload=False, download=False):
+def proxy_api(path, *, binary_upload=False, file_response=False):
     token = session_token()
     if not token:
         return {"detail": "Inicia sesión para acceder a tus tareas."}, 401
@@ -284,10 +289,14 @@ def proxy_api(path, *, binary_upload=False, download=False):
         else:
             return {"detail": "La petición debe utilizar JSON."}, 415
     status, content, headers = api_request(path, method, body, token, content_type=content_type)
-    if download and status == 200:
-        return app.response_class(content, mimetype="application/octet-stream", headers={
+    if file_response and status == 200:
+        media_type = headers.get("content-type")
+        if media_type not in PREVIEW_IMAGE_TYPES and media_type != "application/octet-stream":
+            return {"detail": "El formato del archivo no está disponible."}, 502
+        return app.response_class(content, mimetype=media_type, headers={
             "Content-Disposition": headers.get("content-disposition", "attachment"),
             "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin",
         })
     return app.response_class(content, status=status, mimetype="application/json", headers=retry_headers(headers))
 
@@ -325,7 +334,7 @@ def attachments_api(task_id):
 
 @app.get("/api/tasks/<int:task_id>/attachments/<int:attachment_id>")
 def download_attachment_api(task_id, attachment_id):
-    return proxy_api(f"/api/tasks/{task_id}/attachments/{attachment_id}" + task_workspace_query(), download=True)
+    return proxy_api(f"/api/tasks/{task_id}/attachments/{attachment_id}" + task_workspace_query(), file_response=True)
 
 
 @app.patch("/api/tasks/<int:task_id>/position")
@@ -379,6 +388,30 @@ def chat_api(friendship_id):
     filters = {name: request.args[name] for name in ("before_id", "after_id") if name in request.args}
     query = "?" + urlencode(filters) if filters else ""
     return proxy_api(f"/api/chats/{friendship_id}{query}")
+
+
+@app.get("/api/chats/unread")
+def unread_messages_api():
+    return proxy_api("/api/chats/unread")
+
+
+@app.post("/api/chats/<int:friendship_id>/read")
+def mark_chat_read_api(friendship_id):
+    return proxy_api(f"/api/chats/{friendship_id}/read")
+
+
+@app.post("/api/chats/<int:friendship_id>/attachments")
+def upload_chat_attachment_api(friendship_id):
+    file_name = request.args.get("file_name")
+    query = "?" + urlencode({"file_name": file_name}) if file_name is not None else ""
+    return proxy_api(f"/api/chats/{friendship_id}/attachments" + query, binary_upload=True)
+
+
+@app.get("/api/chats/<int:friendship_id>/attachments/<int:message_id>")
+@app.get("/api/chats/<int:friendship_id>/attachments/<int:message_id>/preview", defaults={"preview": True})
+def chat_attachment_api(friendship_id, message_id, preview=False):
+    suffix = "/preview" if preview else ""
+    return proxy_api(f"/api/chats/{friendship_id}/attachments/{message_id}{suffix}", file_response=True)
 
 
 if __name__ == "__main__":

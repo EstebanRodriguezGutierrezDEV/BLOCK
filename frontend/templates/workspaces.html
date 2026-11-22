@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "navigation.html" import messages_link %}
 {% block title %}Espacios compartidos · Tu block de tareas{% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='workspaces.js') }}" type="module"></script>
@@ -11,7 +12,7 @@
       <span>Tu block de tareas<span class="brand-dot">.</span></span>
     </a>
     <a class="shared-personal-link" href="{{ url_for('tasks') }}">Mi calendario</a>
-    <a class="shared-personal-link" href="{{ url_for('messages') }}">Mensajes</a>
+    {{ messages_link('shared-personal-link') }}
     <div class="shared-nav-heading">
       <h2>Espacios compartidos</h2>
       <button id="create-workspace-button" class="icon-button" type="button" aria-label="Crear espacio">+</button>

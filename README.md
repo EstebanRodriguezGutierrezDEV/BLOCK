@@ -11,5 +11,5 @@ Tu block de tareas es una aplicación web para organizar tus pendientes y verlos
 - Crear espacios compartidos, invitar a cuentas registradas y aceptar o rechazar las invitaciones desde Mensajes.
 - Ordenar las tarjetas arrastrándolas, dejar comentarios y decidir quién puede cambiar su estado si eres el propietario del tablero.
 - Adjuntar archivos de hasta 4 MiB a las tareas compartidas y descargarlos desde la tarjeta.
-- Añadir amigos por correo y conversar en privado cuando acepten la solicitud.
+- Añadir amigos por correo, conversar en privado, compartir archivos con vista previa de imágenes y recibir avisos de mensajes sin leer.
 - Recibir avisos de invitaciones a espacios por correo cuando el envío esté configurado.

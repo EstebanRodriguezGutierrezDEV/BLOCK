@@ -1,9 +1,12 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
 from backend import db, main
 
 PASSWORD = "Una contraseña de prueba 8"
+TEST_IMAGE = (Path(__file__).resolve().parents[1] / "public/static/icons/block-192.png").read_bytes()
 
 
 @pytest.fixture(autouse=True)

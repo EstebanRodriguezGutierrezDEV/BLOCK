@@ -13,11 +13,25 @@
     {% if session_view %}
     <meta name="session-view" content="{{ session_view }}" />
     <script src="{{ url_for('static', filename='session-view.js') }}" type="module"></script>
+    <script src="{{ url_for('static', filename='notifications.js') }}" type="module"></script>
     {% endif %}
     {% block scripts %}{% endblock %}
   </head>
   <body>
     <a class="skip-link" href="#main-content">Saltar al contenido</a>
     {% block content %}{% endblock %}
+    {% if session_view %}
+    <p id="unread-description" class="sr-only" role="status"></p>
+    <dialog id="unread-dialog" class="task-dialog" aria-labelledby="unread-title" aria-describedby="unread-summary" data-login-url="{{ session_sign_in }}">
+      <div class="dialog-top">
+        <h2 id="unread-title">Mensajes pendientes de leer</h2>
+      </div>
+      <p id="unread-summary"></p>
+      <form method="dialog" class="dialog-actions">
+        <button type="submit" class="secondary-button" autofocus>Ahora no</button>
+        <a class="primary-button" id="open-unread" href="{{ url_for('messages') }}">Ver mensajes</a>
+      </form>
+    </dialog>
+    {% endif %}
   </body>
 </html>

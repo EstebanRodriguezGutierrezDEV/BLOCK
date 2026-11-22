@@ -8,7 +8,7 @@ import pytest
 from werkzeug.serving import make_server
 
 from backend import main
-from conftest import PASSWORD, register_and_login
+from conftest import PASSWORD, TEST_IMAGE, register_and_login
 from frontend import app as frontend
 from frontend.app import app as frontend_app
 
@@ -374,15 +374,58 @@ def test_browser_friends_and_private_chat(calendar_page):
         friend.get_by_label("Escribe un mensaje").fill("¡Hacemos equipo!")
         friend.get_by_role("button", name="Enviar mensaje").click()
         playwright.expect(friend.locator("#chat-messages")).to_contain_text("¡Hacemos equipo!")
+        friend.get_by_label("Adjuntar archivo").set_input_files({
+            "name": "Imagen del equipo.png", "mimeType": "image/png", "buffer": TEST_IMAGE,
+        })
+        playwright.expect(friend.locator("#chat-file-name")).to_contain_text("Imagen del equipo.png")
+        friend.get_by_role("button", name="Enviar archivo").click()
+        playwright.expect(friend.get_by_role("img", name="Vista previa de Imagen del equipo.png")).to_be_visible()
         assert friend.evaluate("document.documentElement.scrollWidth === window.innerWidth")
+        assert friend.locator(".chat-panel").evaluate("panel => panel.clientHeight >= window.innerHeight - 1")
 
         page.bring_to_front()
         page.get_by_role("button", name="Actualizar", exact=True).click()
         page.get_by_role("button", name="Abrir chat con amiga@example.com").click()
         playwright.expect(page.locator("#chat-messages")).to_contain_text("¡Hacemos equipo!")
+        preview = page.get_by_role("img", name="Vista previa de Imagen del equipo.png")
+        playwright.expect(preview).to_be_visible()
+        page.wait_for_function("() => document.querySelector('.chat-attachment-preview')?.naturalWidth > 0")
+        with page.expect_download() as download_info:
+            page.get_by_role("button", name="Descargar Imagen del equipo.png").click()
+        assert download_info.value.suggested_filename == "Imagen del equipo.png"
+        assert download_info.value.path().read_bytes() == TEST_IMAGE
         friend.bring_to_front()
+        friend.get_by_role("button", name="Volver a amigos").click()
         friend.get_by_role("button", name="Cerrar sesión").click()
         playwright.expect(friend.get_by_role("heading", name="Iniciar sesión")).to_be_visible()
         assert friend.request.get(f"{base_url}/api/chats/1").status == 401
     finally:
         context.close()
+
+
+def test_unread_popup_and_badges_clear_after_opening_chat(calendar_page):
+    page, api, base_url, _, auth = calendar_page
+    sender = {"Authorization": f"Bearer {register_and_login(api, 'ana@example.com')}"}
+    invited = api.post("/api/friends", headers=sender, json={"email": "calendario@example.com"})
+    friendship = invited.json()["friendship_id"]
+    assert api.post(f"/api/friends/{friendship}/accept", headers=auth).status_code == 204
+    for body in ("Primera nota", "Segunda nota"):
+        assert api.post(f"/api/chats/{friendship}", headers=sender, json={"body": body}).status_code == 201
+
+    page.goto(base_url)
+    modal = page.get_by_role("dialog", name="Mensajes pendientes de leer")
+    playwright.expect(modal).to_be_visible()
+    playwright.expect(modal).to_contain_text("Tienes 2 mensajes sin leer.")
+    playwright.expect(page.locator("[data-unread-dot]")).to_be_visible()
+    modal.get_by_role("link", name="Ver mensajes").click()
+    playwright.expect(page).to_have_url(f"{base_url}/mensajes")
+    playwright.expect(page.locator("[data-unread-chat]")).to_have_text("2")
+    playwright.expect(modal).to_be_hidden()
+    assert page.locator(".inbox").evaluate("inbox => inbox.clientWidth > 1050")
+
+    page.get_by_role("button", name="Abrir chat con ana@example.com").click()
+    playwright.expect(page.locator("#chat-messages")).to_contain_text("Segunda nota")
+    playwright.expect(page.locator("[data-unread-dot]")).to_be_hidden()
+    playwright.expect(page.locator("[data-unread-chat]")).to_be_hidden()
+    assert page.locator("#chat-history").evaluate("history => history.clientHeight > 380")
+    assert api.get("/api/chats/unread", headers=auth).json() == {"total": 0, "chats": []}

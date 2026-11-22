@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% from "navigation.html" import messages_link %}
 {% block title %}Mensajes · Tu block de tareas{% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='messages.js') }}" type="module"></script>
 <script src="{{ url_for('static', filename='social.js') }}" type="module"></script>
 {% endblock %}
 {% block content %}
-<div class="shared-app">
+<div id="messages-app" class="shared-app messages-app">
   <aside class="shared-sidebar" aria-label="Navegación de la cuenta">
     <a href="{{ url_for('index') }}" class="brand">
       <img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" />
@@ -13,7 +14,7 @@
     </a>
     <a class="shared-personal-link" href="{{ url_for('tasks') }}">Mi calendario</a>
     <a class="shared-personal-link" href="{{ url_for('workspaces') }}">Espacios compartidos</a>
-    <a class="workspace-link" href="{{ url_for('messages') }}" aria-current="page">Mensajes</a>
+    {{ messages_link('workspace-link', current=true) }}
     <div class="shared-account">
       <span>{{ user.email }}</span>
       <form method="post" action="{{ url_for('logout') }}">
@@ -29,27 +30,39 @@
       <button id="refresh-messages" class="secondary-button" type="button">Actualizar</button>
     </header>
     <div class="social-grid">
-      <section class="social-panel" aria-labelledby="friends-title">
-        <h2 id="friends-title">Amigos</h2>
-        <form id="friend-form" class="friend-form">
-          <label class="field-label" for="friend-email">Correo de una cuenta registrada</label>
-          <input id="friend-email" name="email" type="email" placeholder="nombre@ejemplo.com" maxlength="254" required />
-          <button class="primary-button" type="submit">Añadir amigo</button>
-        </form>
-        <p id="friends-status" class="field-hint" role="status">Cargando amigos…</p>
-        <p id="friends-error" class="notice" role="alert" hidden></p>
-        <div id="friend-requests" hidden>
-          <h3>Solicitudes de amistad</h3>
-          <ul id="friend-requests-list" class="friend-list"></ul>
-        </div>
-        <p id="friends-empty" class="field-hint" hidden>Cuando se acepte una solicitud, podrás abrir el chat aquí.</p>
-        <ul id="friends-list" class="friend-list" aria-label="Tus amigos"></ul>
-      </section>
+      <div class="social-navigation">
+        <section class="social-panel" aria-labelledby="friends-title">
+          <h2 id="friends-title" tabindex="-1">Amigos</h2>
+          <form id="friend-form" class="friend-form">
+            <label class="field-label" for="friend-email">Correo de una cuenta registrada</label>
+            <input id="friend-email" name="email" type="email" placeholder="nombre@ejemplo.com" maxlength="254" required />
+            <button class="primary-button" type="submit">Añadir amigo</button>
+          </form>
+          <p id="friends-status" class="field-hint" role="status">Cargando amigos…</p>
+          <p id="friends-error" class="notice" role="alert" hidden></p>
+          <div id="friend-requests" hidden>
+            <h3>Solicitudes de amistad</h3>
+            <ul id="friend-requests-list" class="friend-list"></ul>
+          </div>
+          <p id="friends-empty" class="field-hint" hidden>Cuando se acepte una solicitud, podrás abrir el chat aquí.</p>
+          <ul id="friends-list" class="friend-list" aria-label="Tus amigos"></ul>
+        </section>
+        <section class="social-panel" aria-labelledby="invitations-title">
+          <h2 id="invitations-title">Invitaciones a espacios</h2>
+          <p id="messages-error" class="notice" role="alert" hidden></p>
+          <p id="messages-status" class="loading-status" role="status">Cargando invitaciones…</p>
+          <ul id="messages-list" class="inbox-list" aria-label="Invitaciones pendientes"></ul>
+          <p id="messages-empty" class="field-hint" hidden>No tienes invitaciones pendientes.</p>
+        </section>
+      </div>
       <section class="social-panel chat-panel" aria-labelledby="chat-heading">
-        <h2 id="chat-heading">Chat privado</h2>
+        <div class="chat-panel-heading">
+          <button id="back-to-friends" class="text-button chat-back" type="button">Volver a amigos</button>
+          <h2 id="chat-heading">Chat privado</h2>
+        </div>
         <p id="chat-placeholder" class="field-hint">Selecciona un amigo para abrir la conversación.</p>
         <div id="chat-thread" hidden>
-          <h3 id="chat-friend"></h3>
+          <h3 id="chat-friend" tabindex="-1"></h3>
           <div id="chat-history" class="chat-history" tabindex="0" aria-label="Historial de la conversación">
             <button id="chat-older" type="button" class="text-button" hidden>Ver mensajes anteriores</button>
             <p id="chat-empty" class="field-hint" role="status" hidden></p>
@@ -60,17 +73,21 @@
             <textarea id="chat-body" name="body" maxlength="2000" rows="2" required></textarea>
             <button class="primary-button" type="submit">Enviar mensaje</button>
           </form>
+          <form id="chat-file-form" class="chat-file-form" data-limit="{{ attachment_limit_bytes }}">
+            <div class="chat-file-controls">
+              <input id="chat-file" class="sr-only" type="file" aria-describedby="chat-file-limit" />
+              <label class="secondary-button chat-file-label" for="chat-file">Adjuntar archivo</label>
+              <span id="chat-file-name" class="chat-file-name" role="status" hidden></span>
+              <button id="clear-chat-file" class="text-button" type="button" hidden>Quitar</button>
+              <button id="send-chat-file" class="primary-button" type="submit" hidden>Enviar archivo</button>
+            </div>
+            <p id="chat-file-limit" class="field-hint">{{ attachment_limit_message }}</p>
+            <p id="chat-file-error" class="notice" role="alert" hidden></p>
+          </form>
           <p id="chat-error" class="notice" role="alert" hidden></p>
         </div>
       </section>
     </div>
-    <section class="workspace-inbox" aria-labelledby="invitations-title">
-      <h2 id="invitations-title">Invitaciones a espacios</h2>
-      <p id="messages-error" class="notice" role="alert" hidden></p>
-      <p id="messages-status" class="loading-status" role="status">Cargando invitaciones…</p>
-      <ul id="messages-list" class="inbox-list" aria-label="Invitaciones pendientes"></ul>
-      <p id="messages-empty" class="field-hint" hidden>No tienes invitaciones pendientes.</p>
-    </section>
   </main>
 </div>
 {% endblock %}
