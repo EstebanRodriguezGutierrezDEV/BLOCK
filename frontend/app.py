@@ -99,9 +99,12 @@ def clear_session_cookies(response):
 
 @app.before_request
 def require_same_origin_for_writes():
-    if request.method not in {"POST", "PATCH", "DELETE"}:
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
         return
-    origin = (os.environ.get("TODO_PUBLIC_URL") or request.host_url).strip().rstrip("/")
+    # Vercel hosts have already passed TRUSTED_HOSTS validation. Bind writes
+    # to the actual origin so protected previews also work independently.
+    configured_origin = None if os.environ.get("VERCEL") == "1" else os.environ.get("TODO_PUBLIC_URL")
+    origin = (configured_origin or request.host_url).strip().rstrip("/")
     if request.headers.get("Origin") != origin or request.headers.get("Sec-Fetch-Site") == "cross-site":
         abort(403)
 
@@ -110,6 +113,7 @@ def require_same_origin_for_writes():
 def secure_response(response):
     if request.endpoint != "static":
         response.headers["Cache-Control"] = "no-store"
+        response.headers["Vercel-CDN-Cache-Control"] = "no-store"
     if is_preview() or request.endpoint not in PUBLIC_ENDPOINTS or response.status_code >= 400:
         response.headers["X-Robots-Tag"] = "noindex"
     response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
@@ -117,6 +121,7 @@ def secure_response(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
     if request.is_secure:
         response.headers["Strict-Transport-Security"] = "max-age=31536000"
     return response

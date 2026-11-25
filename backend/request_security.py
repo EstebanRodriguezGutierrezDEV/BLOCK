@@ -2,13 +2,14 @@ import re
 from typing import Annotated
 
 from fastapi import HTTPException, Path, Query
-from pydantic import BaseModel, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
 
 from .attachment_policy import ATTACHMENT_LIMIT_MESSAGE, MAX_ATTACHMENT_BYTES
 
 MAX_JSON_BYTES = 16 * 1024
+MAX_JSON_DEPTH = 32
 MAX_RECORD_ID = 2**63 - 1
 RecordID = Annotated[int, Path(ge=1, le=MAX_RECORD_ID)]
 WorkspaceID = Annotated[int, Query(ge=1, le=MAX_RECORD_ID)]
@@ -18,6 +19,8 @@ ATTACHMENT_ROUTE = re.compile(r"/api/(?:tasks|chats)/[0-9]+/attachments/?")
 
 
 class APIInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     @field_validator("*")
     @classmethod
     def validate_text(cls, value):
@@ -46,6 +49,8 @@ class RequestSecurity:
                 headers = MutableHeaders(scope=message)
                 headers["Cache-Control"] = "no-store"
                 headers["X-Content-Type-Options"] = "nosniff"
+                headers["Cross-Origin-Resource-Policy"] = "same-origin"
+                headers["X-Frame-Options"] = "DENY"
             await send(message)
 
         if scope["method"] not in {"POST", "PATCH", "PUT", "DELETE"}:
@@ -80,9 +85,12 @@ class RequestSecurity:
             await JSONResponse({"detail": "El formato de la petición no es compatible."}, 415)(scope, receive, send_protected)
             return
         size = 0
+        depth = 0
+        in_string = False
+        escaped = False
 
         async def receive_bounded():
-            nonlocal size
+            nonlocal size, depth, in_string, escaped
             message = await receive()
             if message["type"] == "http.request":
                 size += len(message.get("body", b""))
@@ -90,6 +98,29 @@ class RequestSecurity:
                     raise HTTPException(413, overflow)
                 if size and not accepted_type:
                     raise HTTPException(415, "El formato de la petición no es compatible.")
+                if not attachment and accepted_type:
+                    # Network JSON is UTF-8. Reject raw NULs, including UTF-16
+                    # and UTF-32 bodies that Python's decoder also accepts.
+                    if b"\x00" in message.get("body", b""):
+                        raise HTTPException(400, "El JSON debe utilizar UTF-8.")
+                    # Count JSON containers without treating braces in strings
+                    # as structure, including when escapes span ASGI chunks.
+                    for byte in message.get("body", b""):
+                        if in_string:
+                            if escaped:
+                                escaped = False
+                            elif byte == 92:
+                                escaped = True
+                            elif byte == 34:
+                                in_string = False
+                        elif byte == 34:
+                            in_string = True
+                        elif byte in (91, 123):
+                            depth += 1
+                            if depth > MAX_JSON_DEPTH:
+                                raise HTTPException(400, "El JSON contiene demasiados niveles.")
+                        elif byte in (93, 125):
+                            depth -= 1
             return message
 
         await self.app(scope, receive_bounded, send_protected)

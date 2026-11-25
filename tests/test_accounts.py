@@ -16,8 +16,9 @@ def test_registration_allows_immediate_login_and_preserves_existing_password(api
     assert api.post("/api/auth/register", json={**credentials, "email": EMAIL.upper()}).status_code == 201
     duplicate = {**credentials, "password": "Otra contraseña distinta 9"}
     assert api.post("/api/auth/register", json=duplicate).status_code == 409
-    assert api.post("/api/auth/login", json=duplicate).status_code == 401
-    login = api.post("/api/auth/login", json=credentials)
+    login_credentials = {"email": EMAIL, "password": PASSWORD}
+    assert api.post("/api/auth/login", json={**login_credentials, "password": duplicate["password"]}).status_code == 401
+    login = api.post("/api/auth/login", json=login_credentials)
     assert login.status_code == 200
     auth = {"Authorization": f"Bearer {login.json()['token']}"}
     assert api.get("/api/auth/me", headers=auth).json()["email"] == EMAIL
@@ -83,6 +84,7 @@ def test_login_limits_are_keyed_by_normalized_email_and_expire(api, monkeypatch)
     monkeypatch.setattr(rate_limits, "time", lambda: clock[0])
     monkeypatch.setattr(accounts, "LOGIN_ACCOUNT", accounts.LOGIN_ACCOUNT._replace(attempts=2))
     assert api.post("/api/auth/register", json=credentials).status_code == 201
+    credentials = {"email": EMAIL, "password": PASSWORD}
 
     for email in (EMAIL, EMAIL.upper()):
         wrong = {"email": email, "password": "Incorrecta"}

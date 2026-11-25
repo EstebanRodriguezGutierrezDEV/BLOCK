@@ -3,11 +3,11 @@ from time import time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path
-from pydantic import EmailStr, StringConstraints
+from pydantic import EmailStr, StrictBool, StringConstraints
 
 from .accounts import CurrentUser
 from .db import PostgresConnection, database
-from .rate_limits import WORKSPACE_INVITES, enforce_rate_limits
+from .rate_limits import WORKSPACE_CREATIONS, WORKSPACE_INVITES, enforce_rate_limits
 from .request_security import APIInput, RecordID
 
 router = APIRouter(prefix="/api")
@@ -24,7 +24,7 @@ class InvitationCreate(APIInput):
 
 
 class MemberPermissions(APIInput):
-    can_change_status: bool
+    can_change_status: StrictBool
 
 
 def require_member(connection, workspace_id: int, user_id: int, *, write=False) -> dict:
@@ -58,6 +58,7 @@ def list_workspaces(user: CurrentUser):
 
 @router.post("/workspaces", status_code=201)
 def create_workspace(data: WorkspaceCreate, user: CurrentUser):
+    enforce_rate_limits((WORKSPACE_CREATIONS, user["id"]))
     with database(write=True) as connection:
         workspace = connection.execute(
             "INSERT INTO workspaces (name, owner_id) VALUES (?, ?) RETURNING id, name, owner_id",

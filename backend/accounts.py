@@ -11,7 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import PostgresConnection, database, utc_timestamp
 from .privacy import PRIVACY_ACKNOWLEDGEMENT_ERROR, current_privacy_notice
-from .rate_limits import LOGIN_ACCOUNT, LOGIN_IP, REGISTER_IP, RateLimit, client_network, enforce_rate_limits
+from .rate_limits import AUTHENTICATED_WRITES, LOGIN_ACCOUNT, LOGIN_IP, REGISTER_IP, RateLimit, client_network, enforce_rate_limits
 from .request_security import APIInput, SESSION_TOKEN_PATTERN
 
 router = APIRouter(prefix="/api/auth")
@@ -48,7 +48,7 @@ def session_hash(credentials: Annotated[HTTPAuthorizationCredentials | None, Dep
     return token_hash(credentials.credentials)
 
 
-def current_user(session: Annotated[str, Depends(session_hash)]) -> dict:
+def current_user(request: Request, session: Annotated[str, Depends(session_hash)]) -> dict:
     with database() as connection:
         user = connection.execute("""
             SELECT users.id, users.email
@@ -57,6 +57,8 @@ def current_user(session: Annotated[str, Depends(session_hash)]) -> dict:
         """, (session, int(time()))).fetchone()
     if user is None:
         raise HTTPException(401, "Inicia sesión para acceder a tus tareas", headers={"WWW-Authenticate": "Bearer"})
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        enforce_rate_limits((AUTHENTICATED_WRITES, user["id"]))
     return dict(user)
 
 

@@ -6,6 +6,7 @@ import sqlite3
 from typing import Iterator
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
 
 from .attachment_policy import MAX_ATTACHMENT_BYTES
@@ -29,9 +30,15 @@ class PostgresConnection:
 def database(*, write=False) -> Iterator[sqlite3.Connection | PostgresConnection]:
     url = os.environ.get("DATABASE_URL")
     if url:
-        with psycopg.connect(url, connect_timeout=5, prepare_threshold=None, row_factory=dict_row) as connection:
+        options = {}
+        if os.environ.get("VERCEL") == "1" and os.environ.get("VERCEL_ENV") in {"production", "preview"}:
+            configured = conninfo_to_dict(url)
+            options = {"sslmode": "verify-full", "sslrootcert": configured.get("sslrootcert", "system")}
+        with psycopg.connect(url, connect_timeout=5, prepare_threshold=None, row_factory=dict_row, **options) as connection:
             yield PostgresConnection(connection)
         return
+    if os.environ.get("VERCEL") == "1":
+        raise RuntimeError("DATABASE_URL es obligatoria en Vercel.")
     connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")

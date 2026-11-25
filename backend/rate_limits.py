@@ -21,6 +21,10 @@ WORKSPACE_INVITES = RateLimit("workspace_invite", 30, 3600)
 FRIEND_REQUESTS = RateLimit("friend_request", 40, 3600)
 CHAT_MESSAGES = RateLimit("direct_message", 120, 60)
 ATTACHMENT_UPLOADS = RateLimit("attachment_upload", 30, 300)
+ATTACHMENT_BYTES = RateLimit("attachment_bytes", 100 * 1024 * 1024, 86400)
+AUTHENTICATED_WRITES = RateLimit("authenticated_write", 120, 60)
+TASK_CREATIONS = RateLimit("task_create", 1000, 86400)
+WORKSPACE_CREATIONS = RateLimit("workspace_create", 50, 86400)
 
 
 def client_network(request: Request) -> str:
@@ -36,20 +40,27 @@ def client_network(request: Request) -> str:
     return str(address)
 
 
-def enforce_rate_limits(*checks: tuple[RateLimit, str | int]) -> None:
+def enforce_rate_limits(*checks: tuple[RateLimit, str | int] | tuple[RateLimit, str | int, int]) -> None:
     now = int(time())
     retry_after = None
     with database(write=True) as connection:
         connection.execute("DELETE FROM request_limits WHERE resets_at <= ?", (now,))
-        for policy, subject in checks:
+        for check in checks:
+            policy, subject = check[:2]
+            amount = check[2] if len(check) == 3 else 1
+            if amount == 0:
+                continue
+            if amount < 0:
+                raise ValueError("El consumo del límite no puede ser negativo.")
             bucket = sha256(str(subject).encode()).hexdigest()
             resets_at = (now // policy.seconds + 1) * policy.seconds
             allowed = connection.execute("""
-                INSERT INTO request_limits (action, bucket, resets_at, attempts) VALUES (?, ?, ?, 1)
-                ON CONFLICT (action, bucket, resets_at) DO UPDATE SET attempts = request_limits.attempts + 1
-                WHERE request_limits.attempts < ?
+                INSERT INTO request_limits (action, bucket, resets_at, attempts)
+                SELECT ?, ?, ?, ? WHERE ? <= ?
+                ON CONFLICT (action, bucket, resets_at) DO UPDATE SET attempts = request_limits.attempts + excluded.attempts
+                WHERE request_limits.attempts + excluded.attempts <= ?
                 RETURNING attempts
-            """, (policy.action, bucket, resets_at, policy.attempts)).fetchone()
+            """, (policy.action, bucket, resets_at, amount, amount, policy.attempts, policy.attempts)).fetchone()
             if allowed is None:
                 retry_after = resets_at - now
                 break

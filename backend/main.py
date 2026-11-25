@@ -13,7 +13,7 @@ from .accounts import CurrentUser, router as accounts_router
 from .attachment_policy import AttachmentName, attachment_response, clean_attachment_name
 from .db import PostgresConnection, database, init_db, utc_timestamp
 from .privacy import PRIVACY_ACKNOWLEDGEMENT_ERROR
-from .rate_limits import ATTACHMENT_UPLOADS, enforce_rate_limits
+from .rate_limits import ATTACHMENT_BYTES, ATTACHMENT_UPLOADS, TASK_CREATIONS, enforce_rate_limits
 from .request_security import APIInput, MAX_RECORD_ID, OptionalWorkspaceID, RecordID, RequestSecurity, WorkspaceID
 from .social import router as social_router
 from .workspaces import require_member, router as workspaces_router
@@ -30,6 +30,9 @@ app = FastAPI(
     description="CRUD de tareas con persistencia en SQLite o PostgreSQL.",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 app.add_middleware(RequestSecurity)
 app.include_router(accounts_router)
@@ -85,7 +88,7 @@ class TaskCreate(APIInput):
 class TaskUpdate(APIInput):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=1000)
-    completed: bool | None = None
+    completed: StrictBool | None = None
     start_date: date | None = None
     end_date: date | None = None
     board_status: BoardStatus | None = None
@@ -230,6 +233,7 @@ def get_task(task_id: RecordID, user: CurrentUser, workspace_id: OptionalWorkspa
 
 @app.post("/api/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
 def create_task(data: TaskCreate, user: CurrentUser, workspace_id: OptionalWorkspaceID = None):
+    enforce_rate_limits((TASK_CREATIONS, user["id"]))
     with database(write=workspace_id is not None) as connection:
         scope = task_scope(connection, user["id"], workspace_id, write=True)
         if data.board_status != "todo":
@@ -427,6 +431,7 @@ async def upload_attachment(
     file_name = clean_attachment_name(file_name)
     await run_in_threadpool(enforce_rate_limits, (ATTACHMENT_UPLOADS, user["id"]))
     content = await request.body()
+    await run_in_threadpool(enforce_rate_limits, (ATTACHMENT_BYTES, user["id"], len(content)))
     return await run_in_threadpool(store_attachment, task_id, workspace_id, user, file_name, content)
 
 

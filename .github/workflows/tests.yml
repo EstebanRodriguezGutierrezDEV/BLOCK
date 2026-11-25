@@ -28,5 +28,7 @@ jobs:
         with:
           python-version-file: .python-version
           cache: pip
+      - run: python -m pip install --upgrade pip setuptools
       - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip_audit -r requirements.lock --no-deps --disable-pip
       - run: python -m pytest -q

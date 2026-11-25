@@ -7,7 +7,7 @@ from pydantic import EmailStr, Field, StringConstraints
 from .accounts import CurrentUser
 from .attachment_policy import AttachmentName, attachment_response, clean_attachment_name, preview_image_type
 from .db import PostgresConnection, database, utc_timestamp
-from .rate_limits import ATTACHMENT_UPLOADS, CHAT_MESSAGES, FRIEND_REQUESTS, enforce_rate_limits
+from .rate_limits import ATTACHMENT_BYTES, ATTACHMENT_UPLOADS, CHAT_MESSAGES, FRIEND_REQUESTS, enforce_rate_limits
 from .request_security import APIInput, MAX_RECORD_ID, RecordID
 
 router = APIRouter(prefix="/api")
@@ -198,7 +198,9 @@ def store_chat_attachment(friendship_id: int, user: dict, file_name: str, conten
 async def upload_chat_attachment(friendship_id: RecordID, user: CurrentUser, request: Request, file_name: AttachmentName):
     file_name = clean_attachment_name(file_name)
     await run_in_threadpool(enforce_rate_limits, (ATTACHMENT_UPLOADS, user["id"]), (CHAT_MESSAGES, user["id"]))
-    return await run_in_threadpool(store_chat_attachment, friendship_id, user, file_name, await request.body())
+    content = await request.body()
+    await run_in_threadpool(enforce_rate_limits, (ATTACHMENT_BYTES, user["id"], len(content)))
+    return await run_in_threadpool(store_chat_attachment, friendship_id, user, file_name, content)
 
 
 def read_chat_attachment(friendship_id: int, message_id: int, user: dict, *, preview=False) -> Response:

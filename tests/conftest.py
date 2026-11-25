@@ -13,6 +13,8 @@ TEST_IMAGE = (Path(__file__).resolve().parents[1] / "public/static/icons/block-1
 @pytest.fixture(autouse=True)
 def isolate_external_services(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
 
 
 @pytest.fixture(autouse=True)

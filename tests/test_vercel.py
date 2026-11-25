@@ -12,6 +12,7 @@ from backend.attachment_policy import MAX_ATTACHMENT_BYTES
 from conftest import PASSWORD, TEST_IMAGE, registration_data
 from frontend.app import app as web
 from frontend import embedded_api
+from frontend.deployment import configure_deployment
 
 
 def test_vercel_registration_sessions_and_task_storage(monkeypatch):
@@ -32,10 +33,14 @@ def test_vercel_registration_sessions_and_task_storage(monkeypatch):
 def exercise_deployment(monkeypatch, test_url, namespace):
     monkeypatch.setattr(web, "wsgi_app", web.wsgi_app)
     monkeypatch.setitem(web.config, "TODO_EMBEDDED_API", False)
+    monkeypatch.setitem(web.config, "TRUSTED_HOSTS", None)
     monkeypatch.setattr(embedded_api, "_initialized", False)
     monkeypatch.delenv("TODO_PUBLIC_URL", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     app = import_module("app").app
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "tareas.example.com")
+    configure_deployment(app)
     base_url = "http://tareas.example.com"
     headers = {"X-Forwarded-Proto": "https", "Origin": "https://tareas.example.com"}
     monkeypatch.setattr(rate_limits, "time", lambda: 1200)

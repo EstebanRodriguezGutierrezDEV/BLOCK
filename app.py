@@ -1,6 +1,5 @@
-from werkzeug.middleware.proxy_fix import ProxyFix
-
 from frontend.app import app
+from frontend.deployment import configure_deployment
 
 app.config["TODO_EMBEDDED_API"] = True
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
+configure_deployment(app)
