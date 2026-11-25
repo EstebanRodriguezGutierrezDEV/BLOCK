@@ -7,7 +7,6 @@ from pydantic import EmailStr, StringConstraints
 
 from .accounts import CurrentUser
 from .db import PostgresConnection, database
-from .mail import send_workspace_notice
 from .rate_limits import WORKSPACE_INVITES, enforce_rate_limits
 from .request_security import APIInput, RecordID
 
@@ -81,10 +80,15 @@ def get_workspace(workspace_id: RecordID, user: CurrentUser):
             WHERE m.workspace_id = ? ORDER BY users.email
         """, (workspace_id,)).fetchall()
         owner = workspace["owner_id"] == user["id"]
+        overrides = connection.execute("""
+            SELECT task_id, can_change_status FROM task_status_permissions
+            WHERE workspace_id = ? AND user_id = ?
+        """, (workspace_id, user["id"])).fetchall() if not owner else []
         return {
             **workspace,
             "can_invite": owner,
             "can_change_status": owner or bool(workspace["can_change_status"]),
+            "task_status_overrides": {row["task_id"]: bool(row["can_change_status"]) for row in overrides},
             "members": [
                 {**dict(row), "can_change_status": row["id"] == workspace["owner_id"] or bool(row["can_change_status"])}
                 for row in members
@@ -140,8 +144,7 @@ def invite_to_workspace(workspace_id: RecordID, data: InvitationCreate, user: Cu
         if created is None:
             raise HTTPException(409, "Ya enviaste una invitación a este correo. Espera un minuto para reenviarla.")
 
-    delivery = send_workspace_notice(email, workspace["name"], user["email"])
-    return {"email_delivery": delivery}
+    return {"invited": True}
 
 
 @router.get("/messages")

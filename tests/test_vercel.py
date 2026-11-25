@@ -9,7 +9,7 @@ import pytest
 
 from backend import accounts, rate_limits
 from backend.attachment_policy import MAX_ATTACHMENT_BYTES
-from conftest import PASSWORD, TEST_IMAGE
+from conftest import PASSWORD, TEST_IMAGE, registration_data
 from frontend.app import app as web
 from frontend import embedded_api
 
@@ -41,7 +41,7 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     monkeypatch.setattr(rate_limits, "time", lambda: 1200)
     owner = app.test_client()
     guest = app.test_client()
-    credentials = {"email": "propietario@example.com", "password": PASSWORD}
+    credentials = registration_data("propietario@example.com")
     task = {"title": "Plan de producción", "start_date": "2026-11-20", "end_date": "2026-11-25"}
 
     assert owner.get("/", base_url=base_url).status_code == 200
@@ -114,7 +114,7 @@ def exercise_deployment(monkeypatch, test_url, namespace):
     assert guest.patch(position, base_url=base_url, headers=headers, json=move).status_code == 403
     members = owner.get(space_path, base_url=base_url, headers=headers).json["members"]
     member_id = next(member["id"] for member in members if member["email"] == "invitado@example.com")
-    permission_path = f"{space_path}/members/{member_id}"
+    permission_path = f"/api/tasks/{card.json['id']}/permissions/{member_id}" + scope
     permission = {"can_change_status": True}
     assert owner.patch(permission_path, base_url=base_url, headers=headers, json=permission).json == permission
     assert guest.patch(position, base_url=base_url, headers=headers, json=move).json[0]["completed"] is True

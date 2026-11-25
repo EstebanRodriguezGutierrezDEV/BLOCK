@@ -7,11 +7,13 @@ from pathlib import Path
 import re
 from urllib.parse import urlencode, urlsplit
 
-from flask import Flask, abort, redirect, render_template, request, send_from_directory, url_for
+from flask import Flask, abort, redirect, render_template, request, send_file, send_from_directory, url_for
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from backend.attachment_policy import ATTACHMENT_LIMIT_MESSAGE, MAX_ATTACHMENT_BYTES, PREVIEW_IMAGE_TYPES
+from backend.privacy import current_privacy_notice
 from backend.request_security import MAX_JSON_BYTES, MAX_RECORD_ID, SESSION_TOKEN_PATTERN
+from .privacy_pdf import create_privacy_pdf
 from .seo import PUBLIC_ENDPOINTS, homepage_metadata, is_preview, pages as seo_pages
 
 PUBLIC_DIR = Path(__file__).resolve().parents[1] / "public"
@@ -159,16 +161,37 @@ def favicon():
     return send_from_directory(PUBLIC_DIR, "favicon.ico")
 
 
+@app.get("/privacidad")
+def privacy():
+    return render_template("privacy.html", notice=current_privacy_notice())
+
+
+@app.get("/privacidad.pdf")
+def privacy_pdf():
+    notice = current_privacy_notice()
+    return send_file(
+        create_privacy_pdf(notice), mimetype="application/pdf", as_attachment=True,
+        download_name=f"aviso-privacidad-{notice.version}.pdf",
+    )
+
+
 @app.route("/registro", methods=["GET", "POST"])
 def register():
+    notice = current_privacy_notice()
     if request.method == "GET":
-        return auth_form("register")
+        return auth_form("register", notice=notice)
     email = request.form.get("email", "").strip()
-    password = request.form.get("password", "")
-    status, payload, headers = json_api("/api/auth/register", {"email": email, "password": password})
+    acknowledgement = request.form.get("privacy_acknowledgement")
+    status, payload, headers = json_api("/api/auth/register", {
+        "email": email,
+        "password": request.form.get("password", ""),
+        "privacy_acknowledgement": acknowledgement,
+    })
     if status == 201:
         return redirect(url_for("login", cuenta_creada="1", **auth_destination()), code=303)
-    return auth_form("register", email=email, error=error_message(payload)), status, retry_headers(headers)
+    return auth_form(
+        "register", notice=notice, email=email, error=error_message(payload), acknowledgement=acknowledgement,
+    ), status, retry_headers(headers)
 
 
 @app.route("/iniciar-sesion", methods=["GET", "POST"])
@@ -401,6 +424,15 @@ def download_attachment_api(task_id, attachment_id):
 @app.patch("/api/tasks/<int:task_id>/position")
 def task_position_api(task_id):
     return proxy_api(f"/api/tasks/{task_id}/position" + task_workspace_query())
+
+
+@app.get("/api/tasks/<int:task_id>/permissions")
+@app.patch("/api/tasks/<int:task_id>/permissions/<int:member_id>")
+def task_permissions_api(task_id, member_id=None):
+    path = f"/api/tasks/{task_id}/permissions"
+    if member_id is not None:
+        path += f"/{member_id}"
+    return proxy_api(path + task_workspace_query())
 
 
 @app.route("/api/workspaces", methods=["GET", "POST"])

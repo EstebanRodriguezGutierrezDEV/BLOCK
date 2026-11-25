@@ -1,6 +1,7 @@
+import smtplib
 from time import time
 
-from backend import db, mail, main
+from backend import db, main
 from backend.attachment_policy import MAX_ATTACHMENT_BYTES
 from conftest import PASSWORD, register_and_login
 
@@ -44,7 +45,7 @@ def test_shared_tasks_and_comments_are_visible_only_to_members(api):
     assert api.get("/api/messages", headers=guest).json() == []
     invite = api.post(space_path + "/invitations", headers=owner, json=invitation_email)
     assert invite.status_code == 201
-    assert invite.json() == {"email_delivery": "not_configured"}
+    assert invite.json() == {"invited": True}
     messages = api.get("/api/messages", headers=guest).json()
     assert len(messages) == 1
     assert messages[0]["workspace_name"] == "Proyecto"
@@ -110,6 +111,70 @@ def test_shared_tasks_and_comments_are_visible_only_to_members(api):
     assert api.get(task + "/comments", headers=owner).status_code == 422
     assert api.delete(task + scope, headers=guest).status_code == 204
     assert api.get(comment_path, headers=owner).status_code == 404
+
+
+def test_owner_can_allow_or_deny_status_per_task_and_member(api):
+    owner = headers(register_and_login(api, "owner@example.com"))
+    people = {
+        email: headers(register_and_login(api, email))
+        for email in ("ana@example.com", "eva@example.com", "externa@example.com")
+    }
+    ana, eva, outsider = people.values()
+    board = api.post("/api/workspaces", headers=owner, json={"name": "Proyecto"}).json()["id"]
+    workspace = f"/api/workspaces/{board}"
+    scope = {"workspace_id": board}
+    for email, member in list(people.items())[:2]:
+        assert api.post(workspace + "/invitations", headers=owner, json={"email": email}).status_code == 201
+        invitation = api.get("/api/messages", headers=member).json()[0]
+        assert api.post(f"/api/messages/{invitation['id']}/accept", headers=member).status_code == 200
+
+    first, second = [
+        api.post("/api/tasks", params=scope, headers=owner, json=task_data(title)).json()["id"]
+        for title in ("Diseño", "Revisión")
+    ]
+    ana_id, eva_id, outsider_id = [
+        api.get("/api/auth/me", headers=member).json()["id"] for member in people.values()
+    ]
+    first_acl = f"/api/tasks/{first}/permissions"
+    ana_permission = f"{first_acl}/{ana_id}"
+    allow = {"can_change_status": True}
+    assert api.get(first_acl, params=scope, headers=outsider).status_code == 404
+    assert api.get(first_acl, params=scope, headers=ana).status_code == 403
+    assert api.patch(ana_permission, params=scope, headers=ana, json=allow).status_code == 403
+    assert api.patch(f"{first_acl}/{outsider_id}", params=scope, headers=owner, json=allow).status_code == 404
+    assert api.patch(ana_permission, params=scope, headers=owner, json={}).status_code == 422
+    other_board = api.post("/api/workspaces", headers=owner, json={"name": "Otro"}).json()["id"]
+    assert api.patch(ana_permission, params={"workspace_id": other_board}, headers=owner, json=allow).status_code == 404
+    assert api.patch(ana_permission, params=scope, headers=owner, json=allow).json() == allow
+    assert api.patch(
+        f"/api/tasks/{second}/permissions/{eva_id}", params=scope, headers=owner, json=allow,
+    ).json() == allow
+    assert api.get(first_acl, params=scope, headers=owner).json() == [
+        {"id": ana_id, "email": "ana@example.com", "can_change_status": True},
+        {"id": eva_id, "email": "eva@example.com", "can_change_status": None},
+    ]
+    assert api.get(workspace, headers=ana).json()["task_status_overrides"] == {str(first): True}
+    assert api.get(workspace, headers=eva).json()["task_status_overrides"] == {str(second): True}
+    for task, allowed, disallowed in ((first, ana, eva), (second, eva, ana)):
+        path = f"/api/tasks/{task}"
+        assert api.patch(path, params=scope, headers=disallowed, json={"completed": True}).status_code == 403
+        assert api.patch(
+            path + "/position", params=scope, headers=disallowed, json={"board_status": "doing"},
+        ).status_code == 403
+        assert api.patch(
+            path + "/position", params=scope, headers=allowed, json={"board_status": "doing"},
+        ).status_code == 200
+
+    assert api.patch(f"{workspace}/members/{ana_id}", headers=owner, json=allow).status_code == 200
+    deny = {"can_change_status": False}
+    assert api.patch(ana_permission, params=scope, headers=owner, json=deny).json() == deny
+    assert api.patch(f"/api/tasks/{first}", params=scope, headers=ana, json={"completed": True}).status_code == 403
+    assert api.patch(f"/api/tasks/{second}", params=scope, headers=ana, json={"completed": True}).status_code == 200
+    inherit = {"can_change_status": None}
+    assert api.patch(ana_permission, params=scope, headers=owner, json=inherit).json() == inherit
+    assert api.patch(f"/api/tasks/{first}", params=scope, headers=ana, json={"completed": True}).status_code == 200
+    assert api.delete(f"/api/tasks/{second}", params=scope, headers=owner).status_code == 204
+    assert api.get(workspace, headers=eva).json()["task_status_overrides"] == {}
 
 
 def test_invitation_resends_rejection_and_expiry(api):
@@ -286,7 +351,7 @@ def test_shared_attachments_are_binary_and_scoped_to_members_and_tasks(api):
         assert connection.execute("SELECT id FROM task_attachments WHERE id = ?", (attachment["id"],)).fetchone() is None
 
 
-def test_mail_notice_uses_the_registered_recipient_and_keeps_the_invitation_on_failure(api, monkeypatch):
+def test_invitation_stays_in_the_app_even_with_old_mail_settings(api, monkeypatch):
     owner = headers(register_and_login(api, "owner@example.com"))
     guest = headers(register_and_login(api, "guest@example.com"))
     monkeypatch.setenv("TODO_SMTP_HOST", "smtp.example.com")
@@ -296,49 +361,20 @@ def test_mail_notice_uses_the_registered_recipient_and_keeps_the_invitation_on_f
     monkeypatch.setenv("TODO_SMTP_USER", "block@example.com")
     monkeypatch.setenv("TODO_SMTP_PASSWORD", "test-smtp-password")
     monkeypatch.setenv("TODO_PUBLIC_URL", "https://block.example.com")
-    sent = []
+    def unexpected_mail(*args, **kwargs):
+        raise AssertionError("La invitación debe quedarse dentro de la aplicación")
 
-    class SMTP:
-        def __init__(self, host, port, timeout):
-            assert (host, port, timeout) == ("smtp.example.com", 587, 5)
-            self.secure = False
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def starttls(self, *, context):
-            self.secure = True
-
-        def login(self, user, password):
-            assert self.secure
-            assert user == "block@example.com"
-            assert password == "test-smtp-password"
-
-        def send_message(self, message):
-            sent.append(message)
-
-    monkeypatch.setattr(mail.smtplib, "SMTP", SMTP)
+    monkeypatch.setattr(smtplib, "SMTP", unexpected_mail)
+    monkeypatch.setattr(smtplib, "SMTP_SSL", unexpected_mail)
     space = api.post("/api/workspaces", headers=owner, json={"name": "Proyecto"}).json()
     route = f"/api/workspaces/{space['id']}/invitations"
     assert api.post(route, headers=owner, json={"email": "sin-cuenta@example.com"}).status_code == 404
-    assert not sent
     result = api.post(route, headers=owner, json={"email": "guest@example.com"})
-    assert result.status_code == 201 and result.json()["email_delivery"] == "sent"
-    message = sent[0]
-    assert message["To"] == "guest@example.com"
-    assert "https://block.example.com/mensajes" in message.get_content()
-    assert "owner@example.com" in message.get_content()
+    assert result.status_code == 201 and result.json() == {"invited": True}
     invitation = api.get("/api/messages", headers=guest).json()[0]
-    assert invitation["id"] not in message.get_content()
+    assert invitation["sender_email"] == "owner@example.com"
     assert api.post(f"/api/messages/{invitation['id']}/reject", headers=guest).status_code == 200
 
-    def smtp_unavailable(*args, **kwargs):
-        raise TimeoutError()
-
-    monkeypatch.setattr(mail.smtplib, "SMTP", smtp_unavailable)
     result = api.post(route, headers=owner, json={"email": "guest@example.com"})
-    assert result.json() == {"email_delivery": "failed"}
+    assert result.status_code == 201
     assert len(api.get("/api/messages", headers=guest).json()) == 1

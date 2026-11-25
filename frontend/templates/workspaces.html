@@ -25,11 +25,11 @@
       <button id="create-workspace-button" class="secondary-button" type="button">Crear espacio</button>
     </div>
     <p id="board-error" class="notice" role="alert" hidden></p>
-    <p id="board-permissions-hint" class="field-hint" hidden>Puedes reordenar las tareas. Para cambiar su estado, pide permiso al propietario.</p>
+    <p id="board-permissions-hint" class="field-hint" hidden>Puedes reordenar las tareas dentro de una columna. El propietario decide en cuáles puedes cambiar el estado.</p>
     <p id="board-loading" class="loading-status" role="status">Cargando espacios…</p>
     <section id="no-spaces" class="empty-state" hidden>
       <h2>Tu primer espacio compartido</h2>
-      <p>Crea un tablero e invita por correo a quienes trabajarán contigo.</p>
+      <p>Crea un tablero e invita a las cuentas con las que quieras trabajar.</p>
       <button id="empty-create-workspace" type="button" class="primary-button">Crear espacio</button>
     </section>
     <div id="board" class="kanban" aria-label="Tablero de tareas" hidden>
@@ -72,7 +72,7 @@
 
 <dialog id="permissions-dialog" class="task-dialog" aria-labelledby="permissions-title">
   <div class="dialog-top"><h2 id="permissions-title">Permisos del tablero</h2><button type="button" class="close-dialog" data-close aria-label="Cerrar">×</button></div>
-  <p class="field-hint">Elige qué miembros pueden mover tarjetas a otra columna o cambiar su estado al editar una tarea.</p>
+  <p class="field-hint">Estos permisos se aplican por defecto. Abre una tarjeta para ajustar el permiso de esa tarea.</p>
   <p id="permissions-empty" class="field-hint" hidden>Aún no hay otros miembros en el espacio.</p>
   <ul id="member-permissions" class="member-permissions"></ul>
   <p id="permissions-error" class="notice" role="alert" hidden></p>
@@ -98,6 +98,13 @@
       <button type="submit" class="primary-button">Guardar tarea</button>
     </div>
   </form>
+  <details id="card-permissions" class="card-permissions" hidden>
+    <summary>Permisos de esta tarea</summary>
+    <p class="field-hint">Decide quién puede cambiar el estado de esta tarjeta.</p>
+    <ul id="card-member-permissions" class="member-permissions"></ul>
+    <p id="card-permissions-error" class="notice" role="alert" hidden></p>
+    <p id="card-permissions-status" class="field-hint" role="status" hidden></p>
+  </details>
   <section id="card-attachments" class="card-attachments" aria-labelledby="attachments-title" data-limit="{{ attachment_limit_bytes }}" hidden>
     <h3 id="attachments-title">Archivos adjuntos</h3>
     <button id="reload-attachments" class="text-button" type="button">Actualizar archivos</button>

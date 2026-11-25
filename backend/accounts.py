@@ -9,7 +9,8 @@ from psycopg.errors import DeadlockDetected, SerializationFailure
 from pydantic import EmailStr, Field, SecretStr
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from .db import PostgresConnection, database
+from .db import PostgresConnection, database, utc_timestamp
+from .privacy import PRIVACY_ACKNOWLEDGEMENT_ERROR, current_privacy_notice
 from .rate_limits import LOGIN_ACCOUNT, LOGIN_IP, REGISTER_IP, RateLimit, client_network, enforce_rate_limits
 from .request_security import APIInput, SESSION_TOKEN_PATTERN
 
@@ -26,6 +27,7 @@ class Login(APIInput):
 
 class Registration(Login):
     password: SecretStr = Field(min_length=12, max_length=128)
+    privacy_acknowledgement: str | None = Field(default=None, max_length=64)
 
 
 class AccountConfirmation(APIInput):
@@ -89,14 +91,23 @@ def require_current_session(connection, user_id, password_hash, session):
 
 @router.post("/register", status_code=201)
 def register(data: Registration, request: Request):
+    notice = current_privacy_notice()
+    if notice.published and data.privacy_acknowledgement != notice.version:
+        raise HTTPException(422, PRIVACY_ACKNOWLEDGEMENT_ERROR)
+    notice_version = notice.version if notice.published else None
+    acknowledged_at = utc_timestamp() if notice.published else None
     enforce_rate_limits((REGISTER_IP, client_network(request)))
     password_hash = generate_password_hash(data.password.get_secret_value())
     with database() as connection:
         created = connection.execute("""
-            INSERT INTO users (email, password_hash) VALUES (?, ?)
-            ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash
+            INSERT INTO users (email, password_hash, privacy_notice_version, privacy_acknowledged_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(email) DO UPDATE SET
+                password_hash = excluded.password_hash,
+                privacy_notice_version = excluded.privacy_notice_version,
+                privacy_acknowledged_at = excluded.privacy_acknowledged_at
             WHERE users.password_hash IS NULL
-        """, (data.email.lower(), password_hash))
+        """, (data.email.lower(), password_hash, notice_version, acknowledged_at))
         if not created.rowcount:
             raise HTTPException(409, "Ya existe una cuenta con este correo. Inicia sesión.")
     return Response(status_code=201)

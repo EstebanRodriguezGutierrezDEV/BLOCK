@@ -1,12 +1,12 @@
 from backend import accounts, db, rate_limits
-from conftest import PASSWORD, register_and_login
+from conftest import PASSWORD, register_and_login, registration_data
 
 EMAIL = "marta@example.com"
 NEW_PASSWORD = "Una contraseña nueva 9"
 
 
 def test_registration_allows_immediate_login_and_preserves_existing_password(api):
-    credentials = {"email": EMAIL, "password": PASSWORD}
+    credentials = registration_data(EMAIL)
     assert api.post("/api/auth/register", json={**credentials, "email": "sin-arroba"}).status_code == 422
     assert api.post("/api/auth/register", json={"email": EMAIL}).status_code == 422
     rejected = api.post("/api/auth/register", json={**credentials, "password": "corta"})
@@ -26,6 +26,32 @@ def test_registration_allows_immediate_login_and_preserves_existing_password(api
     with db.database() as connection:
         user = connection.execute("SELECT * FROM users").fetchone()
         assert user["password_hash"] != PASSWORD
+        assert user["privacy_notice_version"] == credentials["privacy_acknowledgement"]
+        assert user["privacy_acknowledged_at"].endswith("Z")
+
+
+def test_registration_requires_acknowledgement_of_the_current_notice(api, monkeypatch):
+    credentials = {"email": EMAIL, "password": PASSWORD}
+    for data in (credentials, {**credentials, "privacy_acknowledgement": True}):
+        rejected = api.post("/api/auth/register", json=data)
+        assert rejected.status_code == 422
+        assert "aviso de privacidad" in rejected.json()["detail"]
+    stale_registration = registration_data(EMAIL)
+    monkeypatch.setenv("TODO_PRIVACY_INFRASTRUCTURE", "Alojamiento de pruebas actualizado.")
+    assert api.post("/api/auth/register", json=stale_registration).status_code == 422
+    with db.database() as connection:
+        assert connection.execute("SELECT id FROM users").fetchone() is None
+    assert api.post("/api/auth/register", json=registration_data(EMAIL)).status_code == 201
+    monkeypatch.delenv("TODO_PRIVACY_CONTACT_EMAIL")
+    other = {**credentials, "email": "otra@example.com"}
+    assert api.post("/api/auth/register", json=other).status_code == 201
+    with db.database() as connection:
+        row = connection.execute(
+            "SELECT privacy_notice_version, privacy_acknowledged_at FROM users WHERE email = ?", (other["email"],),
+        ).fetchone()
+        assert tuple(row) == (None, None)
+    assert api.post("/api/auth/login", json=other).status_code == 200
+    assert api.post("/api/auth/login", json=credentials).status_code == 200
 
 
 def test_all_task_routes_require_login_and_enforce_ownership(api):
@@ -52,7 +78,7 @@ def test_all_task_routes_require_login_and_enforce_ownership(api):
 
 
 def test_login_limits_are_keyed_by_normalized_email_and_expire(api, monkeypatch):
-    credentials = {"email": EMAIL, "password": PASSWORD}
+    credentials = registration_data(EMAIL)
     clock = [1200]
     monkeypatch.setattr(rate_limits, "time", lambda: clock[0])
     monkeypatch.setattr(accounts, "LOGIN_ACCOUNT", accounts.LOGIN_ACCOUNT._replace(attempts=2))
@@ -75,7 +101,7 @@ def test_login_limits_are_keyed_by_normalized_email_and_expire(api, monkeypatch)
 def test_registration_ignores_untrusted_forwarding_headers(api, monkeypatch):
     monkeypatch.setattr(rate_limits, "time", lambda: 1200)
     monkeypatch.setattr(accounts, "REGISTER_IP", accounts.REGISTER_IP._replace(attempts=1))
-    credentials = {"email": EMAIL, "password": PASSWORD}
+    credentials = registration_data(EMAIL)
     assert api.post("/api/auth/register", json=credentials).status_code == 201
     blocked = api.post(
         "/api/auth/register", json={**credentials, "email": "otra@example.com"},

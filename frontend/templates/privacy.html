@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Aviso de privacidad · Tu block de tareas{% endblock %}
+{% block content %}
+<div class="welcome-page">
+  <header class="welcome-header">
+    <a class="brand" href="{{ url_for('index') }}"><img class="brand-icon" src="{{ url_for('static', filename='icons/block-192.png') }}" alt="" width="40" height="40" /><span>Tu block de tareas<span class="brand-dot">.</span></span></a>
+  </header>
+  <main id="main-content" class="auth-card privacy-card" aria-labelledby="privacy-heading">
+    <h1 id="privacy-heading">Aviso de privacidad</h1>
+    {% if not notice.published %}<p class="notice">Borrador pendiente de publicación.</p>{% endif %}
+    <p class="field-hint">Versión {{ notice.version }}</p>
+    {% for heading, body in notice.sections %}
+    <section>
+      <h2>{{ heading }}</h2>
+      <p>{{ body }}</p>
+    </section>
+    {% endfor %}
+    <a class="primary-button" href="{{ url_for('privacy_pdf') }}">Descargar aviso en PDF</a>
+  </main>
+</div>
+{% endblock %}

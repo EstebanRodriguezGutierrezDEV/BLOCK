@@ -7,11 +7,12 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictBool, StringConstraints, field_validator, model_validator
 
 from .accounts import CurrentUser, router as accounts_router
 from .attachment_policy import AttachmentName, attachment_response, clean_attachment_name
 from .db import PostgresConnection, database, init_db, utc_timestamp
+from .privacy import PRIVACY_ACKNOWLEDGEMENT_ERROR
 from .rate_limits import ATTACHMENT_UPLOADS, enforce_rate_limits
 from .request_security import APIInput, MAX_RECORD_ID, OptionalWorkspaceID, RecordID, RequestSecurity, WorkspaceID
 from .social import router as social_router
@@ -50,6 +51,7 @@ async def validation_error(request: Request, error: RequestValidationError):
     }
     if request.url.path == "/api/auth/register":
         messages["password"] = "La contraseña debe tener entre 12 y 128 caracteres."
+        messages["privacy_acknowledgement"] = PRIVACY_ACKNOWLEDGEMENT_ERROR
     field = error.errors()[0]["loc"][-1]
     return JSONResponse({"detail": messages.get(field, "Revisa los datos introducidos.")}, status_code=422)
 
@@ -126,6 +128,10 @@ class TaskPosition(APIInput):
     before_task_id: int | None = Field(default=None, gt=0, le=MAX_RECORD_ID)
 
 
+class TaskStatusPermission(APIInput):
+    can_change_status: StrictBool | None
+
+
 class CommentCreate(APIInput):
     body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
@@ -134,18 +140,27 @@ class TaskScope(NamedTuple):
     condition: str
     key: int
     can_change_status: bool
+    is_owner: bool
 
 
 def task_scope(connection, user_id: int, workspace_id: int | None, *, write=False) -> TaskScope:
     if workspace_id is None:
-        return TaskScope("workspace_id IS NULL AND user_id = ?", user_id, True)
+        return TaskScope("workspace_id IS NULL AND user_id = ?", user_id, True, True)
     workspace = require_member(connection, workspace_id, user_id, write=write)
-    return TaskScope("workspace_id = ?", workspace_id, workspace["owner_id"] == user_id or bool(workspace["can_change_status"]))
+    owner = workspace["owner_id"] == user_id
+    return TaskScope("workspace_id = ?", workspace_id, owner or bool(workspace["can_change_status"]), owner)
 
 
-def require_status_permission(scope: TaskScope) -> None:
-    if not scope.can_change_status:
-        raise HTTPException(403, "El propietario debe darte permiso para cambiar el estado de las tarjetas.")
+def require_status_permission(connection, scope: TaskScope, user_id: int, task_id: int | None = None) -> None:
+    allowed = scope.can_change_status
+    if task_id is not None and not scope.is_owner:
+        override = connection.execute("""
+            SELECT can_change_status FROM task_status_permissions WHERE task_id = ? AND user_id = ?
+        """, (task_id, user_id)).fetchone()
+        if override is not None:
+            allowed = bool(override["can_change_status"])
+    if not allowed:
+        raise HTTPException(403, "El propietario debe darte permiso para cambiar el estado.")
 
 
 def next_board_position(connection, workspace_id: int, board_status: BoardStatus) -> int:
@@ -218,7 +233,7 @@ def create_task(data: TaskCreate, user: CurrentUser, workspace_id: OptionalWorks
     with database(write=workspace_id is not None) as connection:
         scope = task_scope(connection, user["id"], workspace_id, write=True)
         if data.board_status != "todo":
-            require_status_permission(scope)
+            require_status_permission(connection, scope, user["id"])
         position = next_board_position(connection, workspace_id, data.board_status) if workspace_id is not None else 0
         row = connection.execute(
             """INSERT INTO tasks (user_id, workspace_id, title, description, start_date, end_date,
@@ -260,7 +275,7 @@ def update_task(task_id: RecordID, data: TaskUpdate, user: CurrentUser, workspac
         new_status = changes.get("board_status", existing["board_status"])
         status_changed = new_status != existing["board_status"]
         if status_changed or changes.get("completed", existing["completed"]) != existing["completed"]:
-            require_status_permission(scope)
+            require_status_permission(connection, scope, user["id"], task_id)
         if status_changed and workspace_id is not None:
             changes["board_position"] = next_board_position(connection, workspace_id, new_status)
         fields = ", ".join(f"{column} = ?" for column in changes)
@@ -287,7 +302,7 @@ def move_task(task_id: RecordID, workspace_id: WorkspaceID, data: TaskPosition, 
         scope = task_scope(connection, user["id"], workspace_id, write=True)
         task = get_task_or_404(connection, task_id, scope, for_update=True)
         if data.board_status != task["board_status"]:
-            require_status_permission(scope)
+            require_status_permission(connection, scope, user["id"], task_id)
         cards = connection.execute("""
             SELECT id, board_position FROM tasks
             WHERE workspace_id = ? AND board_status = ? AND id <> ?
@@ -307,6 +322,56 @@ def move_task(task_id: RecordID, workspace_id: WorkspaceID, data: TaskPosition, 
             WHERE id = ? AND workspace_id = ?
         """, (data.board_status, data.board_status == "done", destination + 1, utc_timestamp(), task_id, workspace_id))
         return read_tasks(connection, scope, True)
+
+
+def require_task_permissions_owner(connection, task_id, workspace_id, user_id, *, write=False):
+    scope = task_scope(connection, user_id, workspace_id, write=write)
+    if not scope.is_owner:
+        raise HTTPException(403, "Solo el propietario del tablero puede cambiar los permisos de una tarea.")
+    get_task_or_404(connection, task_id, scope)
+
+
+@app.get("/api/tasks/{task_id}/permissions")
+def list_task_permissions(task_id: RecordID, workspace_id: WorkspaceID, user: CurrentUser):
+    with database() as connection:
+        require_task_permissions_owner(connection, task_id, workspace_id, user["id"])
+        members = connection.execute("""
+            SELECT u.id, u.email, p.can_change_status
+            FROM workspace_members m JOIN users u ON u.id = m.user_id
+            LEFT JOIN task_status_permissions p ON p.task_id = ? AND p.user_id = m.user_id
+            WHERE m.workspace_id = ? AND m.user_id <> ? ORDER BY u.email
+        """, (task_id, workspace_id, user["id"])).fetchall()
+        return [
+            {**dict(row), "can_change_status": None if row["can_change_status"] is None else bool(row["can_change_status"])}
+            for row in members
+        ]
+
+
+@app.patch("/api/tasks/{task_id}/permissions/{member_id}")
+def update_task_permission(
+    task_id: RecordID, workspace_id: WorkspaceID, member_id: RecordID, data: TaskStatusPermission, user: CurrentUser,
+):
+    with database(write=True) as connection:
+        require_task_permissions_owner(connection, task_id, workspace_id, user["id"], write=True)
+        if member_id == user["id"]:
+            raise HTTPException(422, "El propietario siempre puede cambiar el estado.")
+        member = connection.execute("""
+            SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?
+        """, (workspace_id, member_id)).fetchone()
+        if member is None:
+            raise HTTPException(404, "El miembro no pertenece al espacio.")
+
+        if data.can_change_status is None:
+            connection.execute("""
+                DELETE FROM task_status_permissions WHERE task_id = ? AND user_id = ?
+            """, (task_id, member_id))
+        else:
+            connection.execute("""
+                INSERT INTO task_status_permissions (task_id, workspace_id, user_id, can_change_status)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (task_id, user_id) DO UPDATE SET can_change_status = excluded.can_change_status
+            """, (task_id, workspace_id, member_id, int(data.can_change_status)))
+        return {"can_change_status": data.can_change_status}
 
 
 @app.get("/api/tasks/{task_id}/comments")

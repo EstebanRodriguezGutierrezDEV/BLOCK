@@ -69,6 +69,10 @@ def table_columns(connection: sqlite3.Connection | PostgresConnection, table: st
 
 
 def init_access_controls(connection: sqlite3.Connection | PostgresConnection) -> None:
+    user_columns = table_columns(connection, "users")
+    for column in ("privacy_notice_version", "privacy_acknowledged_at"):
+        if column not in user_columns:
+            connection.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
     connection.execute("CREATE INDEX IF NOT EXISTS sessions_by_expiration ON sessions (expires_at)")
     connection.execute("""
         CREATE TABLE IF NOT EXISTS request_limits (
@@ -140,6 +144,22 @@ def init_workspaces(connection: sqlite3.Connection | PostgresConnection) -> None
     connection.execute("""
         CREATE INDEX IF NOT EXISTS tasks_by_board_position
         ON tasks (workspace_id, board_status, board_position, id DESC)
+    """)
+    connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS tasks_by_id_and_workspace ON tasks (id, workspace_id)")
+    connection.execute(f"""
+        CREATE TABLE IF NOT EXISTS task_status_permissions (
+            task_id {reference} NOT NULL,
+            workspace_id {reference} NOT NULL,
+            user_id {reference} NOT NULL,
+            can_change_status INTEGER NOT NULL CHECK (can_change_status IN (0, 1)),
+            PRIMARY KEY (task_id, user_id),
+            FOREIGN KEY (task_id, workspace_id) REFERENCES tasks(id, workspace_id) ON DELETE CASCADE,
+            FOREIGN KEY (workspace_id, user_id) REFERENCES workspace_members(workspace_id, user_id) ON DELETE CASCADE
+        )
+    """)
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS task_status_permissions_by_member
+        ON task_status_permissions (workspace_id, user_id)
     """)
     connection.execute(f"""
         CREATE TABLE IF NOT EXISTS task_comments (

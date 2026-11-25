@@ -40,12 +40,21 @@ html.session-hidden { visibility: hidden; }
 .auth-card { width: min(100%, 480px); margin: clamp(32px, 7vw, 85px) auto; padding: clamp(22px, 5vw, 36px); border: 1px solid var(--line); border-radius: 16px; background: white; }
 .auth-card h1 { font-size: clamp(1.5rem, 4vw, 2rem); margin: 0 0 14px; letter-spacing: -.5px; }
 .auth-card p { line-height: 1.55; color: #5f647a; }
-.auth-card input:not([type="hidden"]) { width: 100%; background: #faf9fd; border: 1px solid #e3e0ed; padding: 12px; border-radius: 8px; color: var(--ink); }
+.auth-card input:is([type="email"], [type="password"]) { width: 100%; background: #faf9fd; border: 1px solid #e3e0ed; padding: 12px; border-radius: 8px; color: var(--ink); }
 .auth-card form .primary-button { width: 100%; margin-top: 23px; }
 .auth-card .auth-link { font-size: .875rem; margin: 20px 0 0; }
 .auth-link a { color: var(--primary-dark); text-decoration: underline; text-underline-offset: 2px; }
 .auth-card .auth-success { background: #e4f2ec; color: #305e4a; padding: 12px; border-radius: 8px; }
 .auth-card .notice { color: #a33a50; }
+.registration-privacy { padding: 14px; border: 1px solid var(--line); border-radius: 8px; font-size: .875rem; background: #faf9fd; }
+.registration-privacy p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.registration-privacy a, .privacy-links a { color: var(--primary-dark); text-decoration: underline; text-underline-offset: 2px; }
+.privacy-check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; line-height: 1.45; }
+.privacy-check input { flex: none; margin: 2px 0 0; inline-size: 1rem; block-size: 1rem; accent-color: var(--primary); }
+.privacy-card { width: min(100%, 720px); overflow-wrap: anywhere; }
+.privacy-card h2 { font-size: 1rem; margin: 22px 0 5px; }
+.privacy-card section p { margin: 0; }
+.privacy-card .primary-button { margin-top: 24px; }
 .welcome-register { padding: 7px 12px; color: var(--primary-dark); border-color: #d9d0f2; }
 .welcome-main { display: grid; grid-template-columns: minmax(0, 1.04fr) minmax(0, 1fr); gap: clamp(32px, 5vw, 64px); padding: clamp(36px, 6vw, 78px) 0 50px; align-items: center; }
 .welcome-copy h1 { font-size: clamp(2.35rem, 5vw, 4.5rem); line-height: 1.08; letter-spacing: -.045em; margin: 0 0 20px; text-wrap: balance; }
@@ -288,6 +297,10 @@ select { appearance: none; width: 100%; background: #f7f6fc; color: var(--ink); 
 .member-permissions { list-style: none; padding: 0; margin: 0; }
 .member-permission { display: flex; align-items: center; gap: 10px; padding: 10px 0; overflow-wrap: anywhere; }
 .member-permission input { width: 18px; height: 18px; flex: none; accent-color: var(--primary); }
+.card-permissions { margin-top: 24px; padding-top: 15px; border-top: 1px solid var(--line); }
+.card-permissions summary { cursor: pointer; font-weight: 650; }
+.card-permission { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 0; overflow-wrap: anywhere; }
+.card-permission select { max-width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); }
 #no-spaces { padding: clamp(22px, 6vw, 54px); }
 #no-spaces h2 { margin-top: 0; }
 #no-spaces button { margin-top: 18px; }

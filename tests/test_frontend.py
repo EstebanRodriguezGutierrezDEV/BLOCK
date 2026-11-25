@@ -2,7 +2,7 @@ from struct import unpack
 from xml.etree.ElementTree import fromstring
 
 from frontend import app as frontend
-from conftest import PASSWORD
+from conftest import PASSWORD, registration_data
 
 
 def test_welcome_and_task_screens(api, monkeypatch):
@@ -45,7 +45,16 @@ def test_welcome_and_task_screens(api, monkeypatch):
         assert client.get("/api/chats/1").status_code == 401
         login = {"email": "marta@example.com", "password": PASSWORD}
         assert client.post("/iniciar-sesion", data=login, headers=origin).status_code == 401
-        registration = client.post("/registro", data=login, headers=origin)
+        form = client.get("/registro")
+        assert form.status_code == 200
+        assert b'type="checkbox" name="privacy_acknowledgement"' in form.data
+        assert b'href="/privacidad.pdf"' in form.data
+        assert client.post("/registro", data=login, headers=origin).status_code == 422
+        assert client.get("/privacidad").status_code == 200
+        pdf = client.get("/privacidad.pdf")
+        assert pdf.headers["Content-Type"] == "application/pdf"
+        assert pdf.data.startswith(b"%PDF-")
+        registration = client.post("/registro", data=registration_data(login["email"]), headers=origin)
         assert registration.location == "/iniciar-sesion?cuenta_creada=1"
         signed_in = client.post("/iniciar-sesion", data=login, headers=origin)
         assert signed_in.location == "/tareas"
@@ -83,7 +92,7 @@ def test_welcome_and_task_screens(api, monkeypatch):
         assert client.get("/mensajes").status_code == 302
 
         other = {"email": "otra@example.com", "password": PASSWORD}
-        assert api.post("/api/auth/register", json=other).status_code == 201
+        assert api.post("/api/auth/register", json=registration_data(other["email"])).status_code == 201
         denied_login = client.get(path).location
         assert client.post(denied_login, data=other, headers=origin).location == path
         assert client.get(path).status_code == 404
@@ -94,6 +103,12 @@ def test_welcome_and_task_screens(api, monkeypatch):
         })
         assert stale_form.location == "/cuenta"
         assert client.get("/cuenta").status_code == 200
+        monkeypatch.delenv("TODO_PRIVACY_CONTROLLER")
+        client.post("/cerrar-sesion", headers=origin)
+        form = client.get("/registro")
+        assert form.status_code == 200 and b'privacy_acknowledgement' not in form.data
+        ordinary_signup = client.post("/registro", headers=origin, data={**login, "email": "tercera@example.com"})
+        assert ordinary_signup.location == "/iniciar-sesion?cuenta_creada=1"
 
 
 def test_search_metadata_and_sitemap_use_the_public_origin(monkeypatch):

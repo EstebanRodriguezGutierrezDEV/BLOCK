@@ -21,6 +21,7 @@ let movingCard = false;
 let boardRevision = 0;
 let commentsRequest = 0;
 let attachmentsRequest = 0;
+let permissionsRequest = 0;
 
 function request(path, options) {
   const space = workspaceId ? "&espacio=" + workspaceId : "";
@@ -93,7 +94,7 @@ async function refreshBoard() {
     renderMembers(workspace);
     $("#invite-button").hidden = !workspace.can_invite;
     $("#permissions-button").hidden = !workspace.can_invite;
-    $("#board-permissions-hint").hidden = workspace.can_change_status;
+    $("#board-permissions-hint").hidden = workspace.can_invite;
     $("#board-actions").hidden = false;
     $("#board").hidden = false;
     if (revision === boardRevision) {
@@ -150,7 +151,7 @@ function createCard(task, index, cards) {
   for (const [key, label] of Object.entries(statusNames)) {
     move.append(new Option(label, key, false, key === task.board_status));
   }
-  move.disabled = !workspaceDetails.can_change_status;
+  move.disabled = !canChangeTaskStatus(task);
   move.addEventListener("change", () => moveCard(task.id, move.value, null, "select"));
   const ordering = node("div", "kanban-order", "");
   for (const [step, symbol, direction] of [[-1, "↑", "Subir"], [1, "↓", "Bajar"]]) {
@@ -203,9 +204,13 @@ function saveCard(task) {
   renderBoard();
 }
 
+function canChangeTaskStatus(task) {
+  return workspaceDetails.task_status_overrides?.[task.id] ?? workspaceDetails.can_change_status;
+}
+
 function canMove(id, status) {
   const current = tasks.find((task) => task.id === id);
-  return current && (current.board_status === status || workspaceDetails.can_change_status);
+  return current && (current.board_status === status || canChangeTaskStatus(current));
 }
 
 async function moveCard(id, status, beforeId, focus = "") {
@@ -291,7 +296,7 @@ function handleForm(selector, submit) {
 }
 
 function dialogIsBusy(dialog) {
-  return Boolean(dialog.querySelector('[type="submit"]:disabled, [type="checkbox"]:disabled'));
+  return Boolean(dialog.querySelector('[type="submit"]:disabled, [type="checkbox"]:disabled, .card-permission select:disabled'));
 }
 
 for (const dialog of [workspaceDialog, inviteDialog, permissionsDialog, cardDialog, deleteDialog]) {
@@ -329,13 +334,8 @@ $("#invite-button").addEventListener("click", () => {
 
 handleForm("#invite-form", async ({ email }) => {
   message($("#invitation-result"));
-  const invite = await request("/api/workspaces/" + workspaceId + "/invitations", json("POST", { email }));
-  const delivery = {
-    sent: "El servidor de correo aceptó el aviso.",
-    not_configured: "El envío por correo aún no está configurado.",
-    failed: "No se pudo enviar el aviso por correo.",
-  };
-  message($("#invitation-result"), "La invitación está en Mensajes. " + delivery[invite.email_delivery]);
+  await request("/api/workspaces/" + workspaceId + "/invitations", json("POST", { email }));
+  message($("#invitation-result"), "La invitación está en Mensajes.");
 });
 
 function renderPermissions(workspace) {
@@ -393,16 +393,73 @@ $("#permissions-button").addEventListener("click", async (event) => {
   }
 });
 
+function taskPermissionRow(task, member) {
+  const item = node("li", "", "");
+  const label = node("label", "card-permission", member.email);
+  const select = document.createElement("select");
+  const values = { inherit: null, allow: true, deny: false };
+  let saved = member.can_change_status === null ? "inherit" : member.can_change_status ? "allow" : "deny";
+  select.append(
+    new Option("Seguir el tablero", "inherit"),
+    new Option("Permitir", "allow"),
+    new Option("Impedir", "deny"),
+  );
+  select.value = saved;
+  select.addEventListener("change", async () => {
+    select.disabled = true;
+    const picked = select.value;
+    message($("#card-permissions-error"));
+    message($("#card-permissions-status"));
+    try {
+      await request(taskPath(task.id, "/permissions/" + member.id), json("PATCH", {
+        can_change_status: values[picked],
+      }));
+      saved = picked;
+      message($("#card-permissions-status"), "Permiso actualizado para " + member.email + ".");
+    } catch (error) {
+      select.value = saved;
+      message($("#card-permissions-error"), error.message);
+    } finally {
+      select.disabled = false;
+    }
+  });
+  label.append(select);
+  item.append(label);
+  return item;
+}
+
+async function loadTaskPermissions(task) {
+  const requestId = ++permissionsRequest;
+  message($("#card-permissions-status"), "Cargando permisos…");
+  try {
+    const members = await request(taskPath(task.id, "/permissions"));
+    if (requestId !== permissionsRequest || !cardDialog.open) return;
+    $("#card-member-permissions").replaceChildren(...members.map((member) => taskPermissionRow(task, member)));
+    message($("#card-permissions-status"), members.length ? "" : "Aún no hay otros miembros en el espacio.");
+  } catch (error) {
+    if (requestId !== permissionsRequest || !cardDialog.open) return;
+    message($("#card-permissions-status"));
+    message($("#card-permissions-error"), error.message);
+  }
+}
+
 function openCard(task = null, status = "todo") {
   activeCard = task;
+  permissionsRequest += 1;
   $("#card-dialog-title").textContent = task ? "Editar tarea" : "Nueva tarea";
   $("#card-title").value = task?.title || "";
   $("#card-description").value = task?.description || "";
   $("#card-start").value = task?.start_date || todayISO();
   $("#card-end").value = task?.end_date || todayISO();
   $("#card-status").value = task?.board_status || status;
-  $("#card-status").disabled = !workspaceDetails.can_change_status;
+  $("#card-status").disabled = !(task ? canChangeTaskStatus(task) : workspaceDetails.can_change_status);
   $("#delete-card").hidden = !task;
+  const permissions = $("#card-permissions");
+  permissions.hidden = !task || !workspaceDetails.can_invite;
+  permissions.open = false;
+  $("#card-member-permissions").replaceChildren();
+  message($("#card-permissions-status"));
+  message($("#card-permissions-error"));
   $("#card-discussion").hidden = !task;
   $("#card-attachments").hidden = !task;
   $("#attachment-form").reset();
@@ -415,6 +472,7 @@ function openCard(task = null, status = "todo") {
   cardDialog.querySelectorAll(".dialog-error").forEach((item) => message(item));
   cardDialog.showModal();
   if (task) {
+    if (!permissions.hidden) loadTaskPermissions(task);
     loadAttachments(task);
     loadComments(task.id);
   }
