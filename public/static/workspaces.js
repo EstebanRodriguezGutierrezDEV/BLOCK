@@ -16,6 +16,7 @@ let workspaceId = Number($("#shared-app").dataset.workspaceId) || null;
 let tasks = [];
 let workspaceDetails = null;
 let activeCard = null;
+let pendingDeletion = null;
 let draggedId = null;
 let movingCard = false;
 let boardRevision = 0;
@@ -165,7 +166,11 @@ function createCard(task, index, cards) {
     });
     ordering.append(button);
   }
-  actions.append(discussion, move, ordering);
+  const remove = node("button", "text-button danger", "Eliminar");
+  remove.type = "button";
+  remove.setAttribute("aria-label", "Eliminar tarea " + task.title);
+  remove.addEventListener("click", () => openDeleteDialog(task));
+  actions.append(discussion, move, ordering, remove);
   card.append(actions);
 
   card.addEventListener("dragstart", (event) => {
@@ -607,20 +612,26 @@ handleForm("#comment-form", async ({ body }, form) => {
   await loadComments(id);
 });
 
-$("#delete-card").addEventListener("click", () => {
-  if (dialogIsBusy(cardDialog)) return;
-  $("#delete-card-name").textContent = activeCard.title;
+function openDeleteDialog(task) {
+  pendingDeletion = task;
+  $("#delete-card-name").textContent = task.title;
   message(deleteDialog.querySelector(".dialog-error"));
   deleteDialog.showModal();
+}
+
+$("#delete-card").addEventListener("click", () => {
+  if (activeCard && !dialogIsBusy(cardDialog)) openDeleteDialog(activeCard);
 });
 
 handleForm("#delete-card-form", async () => {
-  const id = activeCard.id;
+  if (!deleteDialog.open || !pendingDeletion) return;
+  const id = pendingDeletion.id;
   await request(taskPath(id), { method: "DELETE" });
   tasks = tasks.filter((task) => task.id !== id);
   boardRevision += 1;
+  pendingDeletion = null;
   deleteDialog.close();
-  cardDialog.close();
+  if (cardDialog.open && activeCard?.id === id) cardDialog.close();
   renderBoard();
   $("#create-card").focus();
 });
